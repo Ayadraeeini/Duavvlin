@@ -3,81 +3,67 @@ using UnityEngine.UI;
 
 public class SprayPainter : MonoBehaviour
 {
-    public RawImage paintArea;                     // The UI area the player can spray on
-    public Image finalGraffitiDisplay;             // The wall where final spray shows
-    private Texture2D paintTexture;
-    public Color sprayColor = Color.green;
-    public float sprayRadius = 20f;
+    public RawImage sprayArea; // Assign the UI image used for drawing
+    private Texture2D sprayTexture;
+    private bool isDrawing;
 
     void Start()
     {
-        // Create a blank transparent texture
-        paintTexture = new Texture2D(512, 512, TextureFormat.RGBA32, false);
-        for (int x = 0; x < paintTexture.width; x++)
-        {
-            for (int y = 0; y < paintTexture.height; y++)
-            {
-                paintTexture.SetPixel(x, y, Color.clear);
-            }
-        }
-        paintTexture.Apply();
-        paintArea.texture = paintTexture;
+        sprayTexture = new Texture2D(512, 512, TextureFormat.RGBA32, false);
+        sprayTexture.filterMode = FilterMode.Point;
+
+        // Fill with transparent
+        Color[] clearPixels = new Color[512 * 512];
+        for (int i = 0; i < clearPixels.Length; i++)
+            clearPixels[i] = new Color(0, 0, 0, 0);
+
+        sprayTexture.SetPixels(clearPixels);
+        sprayTexture.Apply();
+
+        sprayArea.texture = sprayTexture;
     }
 
     void Update()
     {
-        if (Input.GetMouseButton(0))
+        if (Input.GetMouseButton(0)) // Left mouse drag
         {
             Vector2 localPos;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                paintArea.rectTransform,
+                sprayArea.rectTransform,
                 Input.mousePosition,
                 null,
-                out localPos
-            );
+                out localPos);
 
-            float px = (localPos.x + paintArea.rectTransform.rect.width / 2f) / paintArea.rectTransform.rect.width * paintTexture.width;
-            float py = (localPos.y + paintArea.rectTransform.rect.height / 2f) / paintArea.rectTransform.rect.height * paintTexture.height;
+            Rect rect = sprayArea.rectTransform.rect;
 
-            SprayAt((int)px, (int)py);
-        }
+            // Normalize 0-1, then scale to texture size
+            float x = Mathf.InverseLerp(rect.xMin, rect.xMax, localPos.x);
+            float y = Mathf.InverseLerp(rect.yMin, rect.yMax, localPos.y);
 
-        // Press F to finalize graffiti
-        if (Input.GetKeyDown(KeyCode.F))
-        {
-            DisplayFinalGraffiti();
+            int px = Mathf.FloorToInt(x * sprayTexture.width);
+            int py = Mathf.FloorToInt(y * sprayTexture.height);
+
+            DrawDot(px, py, Color.green);
         }
     }
 
-    void SprayAt(int x, int y)
+    void DrawDot(int x, int y, Color color)
     {
-        for (int i = -Mathf.RoundToInt(sprayRadius); i <= sprayRadius; i++)
+        int size = 8;
+        for (int dx = -size; dx <= size; dx++)
         {
-            for (int j = -Mathf.RoundToInt(sprayRadius); j <= sprayRadius; j++)
+            for (int dy = -size; dy <= size; dy++)
             {
-                if (i * i + j * j <= sprayRadius * sprayRadius)
-                {
-                    int px = x + i;
-                    int py = y + j;
-                    if (px >= 0 && px < paintTexture.width && py >= 0 && py < paintTexture.height)
-                    {
-                        paintTexture.SetPixel(px, py, sprayColor);
-                    }
-                }
+                int px = Mathf.Clamp(x + dx, 0, sprayTexture.width - 1);
+                int py = Mathf.Clamp(y + dy, 0, sprayTexture.height - 1);
+                sprayTexture.SetPixel(px, py, color);
             }
         }
-        paintTexture.Apply();
+        sprayTexture.Apply();
     }
 
-    void DisplayFinalGraffiti()
+    public Texture2D GetSprayResult()
     {
-        // Display the final graffiti result on the wall
-        finalGraffitiDisplay.sprite = Sprite.Create(
-            paintTexture,
-            new Rect(0, 0, paintTexture.width, paintTexture.height),
-            new Vector2(0.5f, 0.5f)
-        );
-
-        paintArea.gameObject.SetActive(false); // Hide the paint UI
+        return sprayTexture;
     }
 }
