@@ -3,19 +3,22 @@ using UnityEngine.UI;
 
 public class SprayPainter : MonoBehaviour
 {
-    public RawImage paintArea;
-    public RawImage paintArea2;
+    public RawImage paintArea;                     // The UI area the player can spray on
+    public Image finalGraffitiDisplay;             // The wall where final spray shows
     private Texture2D paintTexture;
     public Color sprayColor = Color.green;
-    public float sprayRadius = 10f;
+    public float sprayRadius = 20f;
 
     void Start()
     {
-        paintTexture = new Texture2D(512, 512);
+        // Create a blank transparent texture
+        paintTexture = new Texture2D(512, 512, TextureFormat.RGBA32, false);
         for (int x = 0; x < paintTexture.width; x++)
         {
             for (int y = 0; y < paintTexture.height; y++)
+            {
                 paintTexture.SetPixel(x, y, Color.clear);
+            }
         }
         paintTexture.Apply();
         paintArea.texture = paintTexture;
@@ -23,7 +26,7 @@ public class SprayPainter : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetMouseButton(0)) // If mouse is clicked
+        if (Input.GetMouseButton(0))
         {
             Vector2 localPos;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
@@ -33,10 +36,16 @@ public class SprayPainter : MonoBehaviour
                 out localPos
             );
 
-            float px = (localPos.x + paintArea.rectTransform.rect.width / 2) / paintArea.rectTransform.rect.width * paintTexture.width;
-            float py = (localPos.y + paintArea.rectTransform.rect.height / 2) / paintArea.rectTransform.rect.height * paintTexture.height;
+            float px = (localPos.x + paintArea.rectTransform.rect.width / 2f) / paintArea.rectTransform.rect.width * paintTexture.width;
+            float py = (localPos.y + paintArea.rectTransform.rect.height / 2f) / paintArea.rectTransform.rect.height * paintTexture.height;
 
             SprayAt((int)px, (int)py);
+        }
+
+        // Press F to finalize graffiti
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            DisplayFinalGraffiti();
         }
     }
 
@@ -51,10 +60,24 @@ public class SprayPainter : MonoBehaviour
                     int px = x + i;
                     int py = y + j;
                     if (px >= 0 && px < paintTexture.width && py >= 0 && py < paintTexture.height)
+                    {
                         paintTexture.SetPixel(px, py, sprayColor);
+                    }
                 }
             }
         }
         paintTexture.Apply();
+    }
+
+    void DisplayFinalGraffiti()
+    {
+        // Display the final graffiti result on the wall
+        finalGraffitiDisplay.sprite = Sprite.Create(
+            paintTexture,
+            new Rect(0, 0, paintTexture.width, paintTexture.height),
+            new Vector2(0.5f, 0.5f)
+        );
+
+        paintArea.gameObject.SetActive(false); // Hide the paint UI
     }
 }

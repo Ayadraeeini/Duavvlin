@@ -7,14 +7,14 @@ public class Spray : MonoBehaviour
 
     void Start()
     {
-        graffitiUI.SetActive(false); // Hide panel at start
+        graffitiUI.SetActive(false);
     }
 
     void Update()
     {
         if (inRange && Input.GetKeyDown(KeyCode.E))
         {
-            graffitiUI.SetActive(true); // Show graffiti UI
+            graffitiUI.SetActive(true);
         }
     }
 
@@ -29,7 +29,7 @@ public class Spray : MonoBehaviour
         if (other.CompareTag("Player"))
         {
             inRange = false;
-            graffitiUI.SetActive(false); // Hide UI when leaving
+            graffitiUI.SetActive(false);
         }
     }
 }

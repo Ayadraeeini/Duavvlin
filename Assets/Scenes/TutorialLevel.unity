@@ -1123,6 +1123,53 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
+--- !u!1 &380874853
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 380874854}
+  - component: {fileID: 380874855}
+  m_Layer: 6
+  m_Name: SB
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &380874854
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 380874853}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1602126177}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &380874855
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 380874853}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 095250f0a5c6c1c4aa1c9a77d038d17c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  graffitiUI: {fileID: 1257446079}
+  paintArea: {fileID: 1176227784}
+  graffitiResultObj: {fileID: 1799405847}
 --- !u!1 &384410326
 GameObject:
   m_ObjectHideFlags: 0
@@ -3223,7 +3270,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1176227782}
   m_LocalRotation: {x: 0.00095209794, y: 0.0026864843, z: 0.09682057, w: 0.9952978}
-  m_LocalPosition: {x: 0, y: 0, z: -0}
+  m_LocalPosition: {x: 0, y: 0, z: -1}
   m_LocalScale: {x: 0.22516264, y: 1.1449865, z: 0.65531}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3231,8 +3278,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0.079, y: 0.317, z: 11.112}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -234.9, y: -3}
-  m_SizeDelta: {x: 100, y: 100}
+  m_AnchoredPosition: {x: -49, y: -31}
+  m_SizeDelta: {x: 1493.3969, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1176227784
 MonoBehaviour:
@@ -3494,7 +3541,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1257446080
 RectTransform:
   m_ObjectHideFlags: 0
@@ -3510,6 +3557,7 @@ RectTransform:
   - {fileID: 488263354}
   - {fileID: 1176227783}
   - {fileID: 460295322}
+  - {fileID: 1799405848}
   m_Father: {fileID: 1552354420}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -3529,8 +3577,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fd7603215a110ae45ada61ccd1dd7cb8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  paintArea: {fileID: 1176227784}
-  paintArea2: {fileID: 460295323}
+  currentPaintArea: {fileID: 1176227784}
   sprayColor: {r: 0, g: 1, b: 0, a: 1}
   sprayRadius: 200
 --- !u!114 &1257446082
@@ -4272,7 +4319,8 @@ Transform:
   m_LocalPosition: {x: -4.06, y: -1.295, z: 0}
   m_LocalScale: {x: 0.77129006, y: 0.87837476, z: 0.71009}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 380874854}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &1602126178
@@ -4287,7 +4335,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 095250f0a5c6c1c4aa1c9a77d038d17c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  graffitiUI: {fileID: 0}
+  graffitiUI: {fileID: 1257446079}
+  paintArea: {fileID: 1176227784}
+  graffitiResultObj: {fileID: 1799405847}
 --- !u!61 &1602126179
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -4945,6 +4995,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   graffitiUI: {fileID: 1257446079}
+  paintArea: {fileID: 0}
+  graffitiResultObj: {fileID: 0}
 --- !u!212 &1718246180
 SpriteRenderer:
   m_ObjectHideFlags: 0
@@ -5096,6 +5148,41 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_MaskInteraction: 0
   m_SpriteSortPoint: 0
+--- !u!1 &1799405847
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1799405848}
+  m_Layer: 5
+  m_Name: graffitiResultObj
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &1799405848
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1799405847}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1257446080}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: -500.10092, y: -353.25394}
+  m_SizeDelta: {x: 1.3243, y: 1.2402}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1871405435
 GameObject:
   m_ObjectHideFlags: 0
