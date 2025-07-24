@@ -6,7 +6,7 @@ using System.Collections;
 public class SprayGameManager : MonoBehaviour
 {
     public GameObject sprayPanel;
-    public Image graffitiImage;
+    public GameObject graffitiImage;
     public Transform slamTarget; // Where to place final image
     public GameObject graffitiPrefab; // Final graffiti that slams in
     public Texture2D sprayCursor;
@@ -34,8 +34,12 @@ public class SprayGameManager : MonoBehaviour
         sprayPanel.SetActive(false);
         Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
 
-        // Instantiate finished graffiti at slam location
-        GameObject graffiti = Instantiate(graffitiPrefab, slamTarget.position, Quaternion.identity);
         gameRunning = false;
+
+        // Play Animation
+        void PlayAnimation()
+        {
+          GetComponent<Animator>().SetTrigger("Spraypaint");
+        }
     }
 }
