@@ -35,11 +35,5 @@ public class SprayGameManager : MonoBehaviour
         Cursor.SetCursor(null, Vector2.zero, CursorMode.Auto);
 
         gameRunning = false;
-
-        // Play Animation
-        void PlayAnimation()
-        {
-          GetComponent<Animator>().SetTrigger("Spraypaint");
-        }
     }
 }
