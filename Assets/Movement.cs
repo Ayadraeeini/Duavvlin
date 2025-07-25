@@ -7,12 +7,10 @@ public class Movement : MonoBehaviour
     public float speed;
     public float jumpHeight;
     public float hideDetectionRange = 2f;
-    public float climbSpeed = 3f;
 
     private float move;
     private bool isJumping = false;
     private bool isHiding = false;
-    private bool isClimbing = false;
 
     private Rigidbody2D rb;
     private SpriteRenderer sr;
@@ -35,34 +33,23 @@ public class Movement : MonoBehaviour
         {
             isHiding = !isHiding;
 
-            // Use alpha to hide/show
+            // Use alpha to hide/show (instead of disabling the renderer)
             float alpha = isHiding ? 0f : 1f;
             sr.color = new Color(sr.color.r, sr.color.g, sr.color.b, alpha);
 
             rb.velocity = Vector2.zero;
         }
 
+        // Don’t move while hiding
         if (isHiding)
             return;
 
-        // Horizontal movement
+        // Move
         move = Input.GetAxis("Horizontal");
         rb.velocity = new Vector2(move * speed, rb.velocity.y);
 
-        // Climbing movement (vertical)
-        if (isClimbing)
-        {
-            float vertical = Input.GetAxis("Vertical"); // W = +1, S = -1
-            rb.velocity = new Vector2(rb.velocity.x, vertical * climbSpeed);
-            rb.gravityScale = 0f; // Disable gravity when climbing
-        }
-        else
-        {
-            rb.gravityScale = 1f; // Normal gravity
-        }
-
         // Jump
-        if (Input.GetKeyDown(KeyCode.Space) && !isJumping && !isClimbing)
+        if (Input.GetKeyDown(KeyCode.Space) && !isJumping)
         {
             rb.AddForce(Vector2.up * jumpHeight, ForceMode2D.Impulse);
             isJumping = true;
@@ -74,25 +61,6 @@ public class Movement : MonoBehaviour
         if (other.contacts[0].normal.y > 0.5f)
         {
             isJumping = false;
-        }
-    }
-
-    // Enter ladder area
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (other.CompareTag("Ladder"))
-        {
-            isClimbing = true;
-            rb.velocity = Vector2.zero;
-        }
-    }
-
-    // Exit ladder area
-    private void OnTriggerExit2D(Collider2D other)
-    {
-        if (other.CompareTag("Ladder"))
-        {
-            isClimbing = false;
         }
     }
 
@@ -112,6 +80,7 @@ public class Movement : MonoBehaviour
             }
         }
 
+        // New hide spot found
         if (nearest != currentHideSpot)
         {
             ClearCurrentOutline();
@@ -129,6 +98,7 @@ public class Movement : MonoBehaviour
             currentHideSpot = nearest;
         }
 
+        // No hide spot in range
         if (nearest == null)
         {
             ClearCurrentOutline();
