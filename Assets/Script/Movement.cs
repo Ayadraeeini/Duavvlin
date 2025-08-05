@@ -20,7 +20,6 @@ public class Movement : MonoBehaviour
     private bool isJumping = false;
     private bool isClimbing = false;
     private bool isFrozen = false;
-    private bool isTransformed = false;
     private bool isHiding = false;
     private bool nearLadder = false;
     private bool nearHideSpot = false;
@@ -92,7 +91,7 @@ public class Movement : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.T))
         {
-            ToggleTransformation();
+            // The actual transform is handled inside PlayerTransform.cs
         }
 
         if (Input.GetKeyDown(KeyCode.Return))
@@ -112,16 +111,6 @@ public class Movement : MonoBehaviour
     {
         isHiding = !isHiding;
         sr.color = new Color(sr.color.r, sr.color.g, sr.color.b, isHiding ? 0f : 1f);
-        rb.velocity = Vector2.zero;
-    }
-
-    private void ToggleTransformation()
-    {
-        if (playerTransformScript != null)
-        {
-            isTransformed = playerTransformScript.IsTransformed();
-        }
-
         rb.velocity = Vector2.zero;
     }
 
@@ -197,5 +186,6 @@ public class Movement : MonoBehaviour
     }
 
     public bool IsHiding() => isHiding;
-    public bool IsTransformed() => isTransformed;
+    public bool IsTransformed() => playerTransformScript != null && playerTransformScript.IsTransformed();
+    public bool IsStealthed() => IsHiding() || IsTransformed();
 }

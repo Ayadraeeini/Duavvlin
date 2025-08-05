@@ -10,27 +10,54 @@ public class PoliceMovement : MonoBehaviour
     [Header("Detection Settings")]
     public float detectionRange = 5f;
     public Transform player;
-    public DetectionBar detectionBar;
+    public EyeDetectionUI eyeUI;
 
-    [Header("Detection Alert Sound")]
-    public AudioSource alertAudio;
-    private bool alertPlayed = false;
-    private float alertTimer = 0f;
+    [Header("View Cone")]
+    [SerializeField] private Transform viewCone;
 
+    private bool isDetectingPlayer = false;
+    private bool isChasing = false;
+    private float cooldownTimer = 0f;
     private bool movingRight = true;
     private SpriteRenderer sr;
-
-    private bool isCurrentlyDetecting = false;
 
     void Start()
     {
         sr = GetComponent<SpriteRenderer>();
+
+        if (player == null)
+        {
+            GameObject found = GameObject.FindWithTag("Player");
+            if (found != null) player = found.transform;
+        }
+
+        if (eyeUI == null && player != null)
+        {
+            eyeUI = player.GetComponentInChildren<EyeDetectionUI>();
+        }
     }
 
     void Update()
     {
-        Patrol();
+        if (!isChasing) Patrol();
+        else ChasePlayer();
+
         DetectPlayer();
+
+        if (!isDetectingPlayer && isChasing)
+        {
+            cooldownTimer += Time.deltaTime;
+            if (cooldownTimer >= 2f)
+            {
+                isChasing = false;
+                cooldownTimer = 0f;
+            }
+        }
+
+        if (isDetectingPlayer)
+        {
+            cooldownTimer = 0f;
+        }
     }
 
     void Patrol()
@@ -45,7 +72,7 @@ public class PoliceMovement : MonoBehaviour
             {
                 pos.x = rightBound;
                 movingRight = false;
-                FlipAllChildren(false);
+                FlipDirection(false);
             }
         }
         else
@@ -55,7 +82,7 @@ public class PoliceMovement : MonoBehaviour
             {
                 pos.x = leftBound;
                 movingRight = true;
-                FlipAllChildren(true);
+                FlipDirection(true);
             }
         }
 
@@ -63,80 +90,100 @@ public class PoliceMovement : MonoBehaviour
         sr.flipX = !movingRight;
     }
 
-    void FlipAllChildren(bool faceRight)
+    void ChasePlayer()
     {
+        if (player == null) return;
+
+        float step = speed * Time.deltaTime;
+        Vector3 direction = (player.position - transform.position).normalized;
+        direction.y = 0f;
+        transform.position += direction * step;
+
+        bool newFacingRight = direction.x > 0;
+
+        if (newFacingRight != movingRight)
+        {
+            FlipDirection(newFacingRight);
+            movingRight = newFacingRight;
+        }
+
+        sr.flipX = !movingRight;
+    }
+
+    void FlipDirection(bool faceRight)
+    {
+        if (viewCone != null)
+        {
+            Vector3 coneScale = viewCone.localScale;
+            coneScale.x = faceRight ? Mathf.Abs(coneScale.x) : -Mathf.Abs(coneScale.x);
+            viewCone.localScale = coneScale;
+        }
+
         foreach (Transform child in transform)
         {
-            Vector3 scale = child.localScale;
-            scale.x = faceRight ? Mathf.Abs(scale.x) : -Mathf.Abs(scale.x);
-            child.localScale = scale;
+            if (child == viewCone) continue;
+
+            SpriteRenderer childSR = child.GetComponent<SpriteRenderer>();
+            if (childSR != null)
+                childSR.flipX = !faceRight;
         }
     }
 
     void DetectPlayer()
     {
-        if (player == null || detectionBar == null) return;
+        if (player == null || eyeUI == null) return;
 
-        Movement playerScript = player.GetComponent<Movement>();
-        if (playerScript == null)
+        Movement playerMovement = player.GetComponent<Movement>();
+        if (playerMovement != null && playerMovement.IsStealthed())
         {
-            Debug.LogError("Movement script not found on player!");
+            if (isDetectingPlayer)
+            {
+                isDetectingPlayer = false;
+                eyeUI.StopDetection();
+                Debug.Log($"[{gameObject.name}] Player is hiding or transformed. Stop detection.");
+            }
             return;
         }
 
-        float distanceToPlayer = Vector2.Distance(transform.position, player.position);
-        if (distanceToPlayer > detectionRange)
+        float xDist = Mathf.Abs(transform.position.x - player.position.x);
+        float yDist = Mathf.Abs(transform.position.y - player.position.y);
+        bool inRange = xDist <= detectionRange && yDist <= 1.5f;
+
+        if (inRange)
         {
-            StopDetection();
-            return;
+            if (!isDetectingPlayer)
+            {
+                isDetectingPlayer = true;
+                eyeUI.StartDetection();
+                Debug.Log($"[{gameObject.name}] Player ENTERED vision.");
+            }
+
+            if (!isChasing && !eyeUI.IsFullyDetected())
+            {
+                isChasing = true;
+            }
+
+            if (eyeUI.IsFullyDetected())
+            {
+                eyeUI.ResetDetection();
+                player.GetComponent<Movement>().GetCaught();
+                Debug.Log($"[{gameObject.name}] Player CAUGHT.");
+            }
         }
-
-        float dirToPlayer = player.position.x - transform.position.x;
-        bool playerInFront = (movingRight && dirToPlayer > 0) || (!movingRight && dirToPlayer < 0);
-
-        if (!playerInFront)
+        else
         {
-            StopDetection();
-            return;
-        }
-
-        if (playerScript.IsHiding() || playerScript.IsTransformed())
-        {
-            StopDetection();
-            return;
-        }
-
-        // Player is in view and not hiding
-        if (!isCurrentlyDetecting)
-        {
-            detectionBar.AddDetection();
-            isCurrentlyDetecting = true;
-        }
-
-        alertTimer += Time.deltaTime;
-
-        if (!alertPlayed && alertTimer >= 0.1f)
-        {
-            alertAudio.Play();
-            alertPlayed = true;
-        }
-
-        if (detectionBar.IsFull())
-        {
-            detectionBar.ResetBar();
-            playerScript.GetCaught();
+            if (isDetectingPlayer)
+            {
+                isDetectingPlayer = false;
+                eyeUI.StopDetection();
+                Debug.Log($"[{gameObject.name}] Player EXITED vision.");
+            }
         }
     }
 
-    void StopDetection()
+    void OnDrawGizmosSelected()
     {
-        if (isCurrentlyDetecting)
-        {
-            detectionBar.RemoveDetection();
-            isCurrentlyDetecting = false;
-        }
-
-        alertPlayed = false;
-        alertTimer = 0f;
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireCube(new Vector3(transform.position.x, transform.position.y, 0), new Vector3(detectionRange * 2, 3f, 0.1f));
     }
 }

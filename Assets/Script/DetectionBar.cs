@@ -11,41 +11,41 @@ public class DetectionBar : MonoBehaviour
     public float fillTime = 4f;
 
     private float currentValue = 0f;
-    private int detectionCount = 0;
+    private float targetValue = 0f;
 
     void Start()
     {
+        if (slider == null)
+        {
+            Debug.LogError("[DetectionBar] Slider is not assigned!");
+        }
+
         slider.value = 0f;
         sliderCanvas.SetActive(false);
     }
 
     void Update()
     {
-        bool isDetecting = detectionCount > 0;
+        Debug.Log($"[DetectionBar] Update | Current: {currentValue:F2} | Target: {targetValue:F2}");
 
-        if (isDetecting)
-        {
-            currentValue += Time.deltaTime / fillTime;
-            currentValue = Mathf.Clamp01(currentValue);
-        }
-        else
-        {
-            currentValue -= Time.deltaTime;
-            currentValue = Mathf.Clamp01(currentValue);
-        }
-
+        currentValue = Mathf.MoveTowards(currentValue, targetValue, Time.deltaTime / fillTime);
+        currentValue = Mathf.Clamp01(currentValue);
         slider.value = currentValue;
         sliderCanvas.SetActive(currentValue > 0f);
     }
 
-    public void AddDetection()
+    public void AddDetection(float delta)
     {
-        detectionCount++;
+        Debug.Log($"[DetectionBar] AddDetection({delta:F4})");
+        targetValue += delta / fillTime;
+        targetValue = Mathf.Clamp01(targetValue);
     }
 
-    public void RemoveDetection()
+    public void RemoveDetection(float delta)
     {
-        detectionCount = Mathf.Max(0, detectionCount - 1);
+        Debug.Log($"[DetectionBar] RemoveDetection({delta:F4})");
+        targetValue -= delta / fillTime;
+        targetValue = Mathf.Clamp01(targetValue);
     }
 
     public bool IsFull()
@@ -55,9 +55,10 @@ public class DetectionBar : MonoBehaviour
 
     public void ResetBar()
     {
+        Debug.Log("[DetectionBar] ResetBar called.");
         currentValue = 0f;
+        targetValue = 0f;
         slider.value = 0f;
-        detectionCount = 0;
         sliderCanvas.SetActive(false);
     }
 }

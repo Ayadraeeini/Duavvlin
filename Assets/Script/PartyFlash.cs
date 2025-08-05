@@ -31,7 +31,7 @@ public class PartyFlash : MonoBehaviour
         {
             index = (index + 1) % colors.Length;
             sr.color = colors[index];
-            Debug.Log("Color changed to: " + colors[index]);
+      
             timer = 0f;
         }
     }
