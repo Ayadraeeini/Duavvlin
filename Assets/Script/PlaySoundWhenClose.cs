@@ -18,7 +18,7 @@ public class PlaySoundWhenClose : MonoBehaviour
         float playerX = player.position.x;
 
         // Debug the player's x position
-        Debug.Log("Player X Position: " + playerX);
+     
 
         // Check if the player is within the x-range (18 <= x <= 20.5)
         if (playerX >= minX && playerX <= maxX)
