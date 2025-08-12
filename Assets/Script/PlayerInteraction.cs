@@ -2,13 +2,25 @@ using UnityEngine;
 
 public class PlayerInteraction : MonoBehaviour
 {
+    [Header("Input   InputReader)")]
+    public InputReader input;
+
     private SprayBox currentSprayBox;
+
+    void Awake()
+    {
+        if (!input) input = FindObjectOfType<InputReader>(); // fallback
+    }
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.E))
+        bool interactPressed =
+            (input != null && input.InteractPressed()) ||
+            Input.GetKeyDown(KeyCode.E); // fallback for keyboard
+
+        if (interactPressed)
         {
-            Debug.Log("[PlayerInteraction] Pressed E");
+            Debug.Log("[PlayerInteraction] Interact pressed");
 
             if (currentSprayBox != null)
             {
@@ -17,7 +29,7 @@ public class PlayerInteraction : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning("[PlayerInteraction] Pressed E, but no SprayBox in range.");
+                Debug.LogWarning("[PlayerInteraction] Interact pressed, but no SprayBox in range.");
             }
         }
     }
@@ -33,13 +45,10 @@ public class PlayerInteraction : MonoBehaviour
 
     void OnTriggerExit2D(Collider2D other)
     {
-        if (other.CompareTag("SprayBox"))
+        if (other.CompareTag("SprayBox") && currentSprayBox != null && currentSprayBox.gameObject == other.gameObject)
         {
-            if (currentSprayBox != null && currentSprayBox.gameObject == other.gameObject)
-            {
-                Debug.Log($"[PlayerInteraction] Exited SprayBox area: {other.name}");
-                currentSprayBox = null;
-            }
+            Debug.Log($"[PlayerInteraction] Exited SprayBox area: {other.name}");
+            currentSprayBox = null;
         }
     }
 }

@@ -9,7 +9,7 @@ public class PlayerTransform : MonoBehaviour
     private SpriteRenderer sr;
     private Animator animator;
     private bool isTransformed = false;
-    private float duration = 5f;
+    private float duration = 6.5f;
     private Vector3 originalScale;
 
     void Start()

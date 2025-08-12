@@ -1,4 +1,6 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Reflection;
+using UnityEngine;
 
 public class PoliceMovement : MonoBehaviour
 {
@@ -8,18 +10,38 @@ public class PoliceMovement : MonoBehaviour
     public float rightBound;
 
     [Header("Detection Settings")]
-    public float detectionRange = 5f;
+    [Tooltip("Max distance for LOS raycasts (cap)")]
+    public float detectionRange = 8f;
     public Transform player;
     public EyeDetectionUI eyeUI;
 
-    [Header("View Cone")]
+    [Header("Detection Speed Settings")]
+    public float detectionFillSpeed = 1f;
+    public float detectionDrainSpeed = 1f;
+
+    [Header("View Cone (must have a Collider2D)")]
     [SerializeField] private Transform viewCone;
+
+    [Header("Line of Sight")]
+    [Tooltip("Layers that block sight (Walls/Level). Do NOT include Player.")]
+    public LayerMask obstructionMask;
+    [Tooltip("Player layer (so Overlap/Raycast can 'see' the player).")]
+    public LayerMask playerMask;
 
     private bool isDetectingPlayer = false;
     private bool isChasing = false;
     private float cooldownTimer = 0f;
     private bool movingRight = true;
     private SpriteRenderer sr;
+
+    // Cone + LOS state
+    private bool playerInCone = false;
+    private bool hasLineOfSight = false;
+
+    // Cached cone collider + filter + temp buffer
+    private Collider2D coneCol;
+    private ContactFilter2D playerFilter;
+    private readonly Collider2D[] overlapResults = new Collider2D[8];
 
     void Start()
     {
@@ -32,9 +54,23 @@ public class PoliceMovement : MonoBehaviour
         }
 
         if (eyeUI == null && player != null)
-        {
             eyeUI = player.GetComponentInChildren<EyeDetectionUI>();
+
+        if (viewCone != null)
+        {
+            coneCol = viewCone.GetComponent<Collider2D>();
+            if (coneCol == null)
+                Debug.LogError("[PoliceMovement] viewCone needs a Collider2D (Polygon or Box).");
+            else
+                coneCol.isTrigger = true; // ensure it never blocks
         }
+
+        playerFilter = new ContactFilter2D
+        {
+            useLayerMask = true,
+            useTriggers = true
+        };
+        playerFilter.SetLayerMask(playerMask);
     }
 
     void Update()
@@ -42,8 +78,15 @@ public class PoliceMovement : MonoBehaviour
         if (!isChasing) Patrol();
         else ChasePlayer();
 
-        DetectPlayer();
+        // Update "in cone" using collider overlap (no extra script)
+        playerInCone = IsPlayerInsideCone();
 
+        // Update line of sight if inside cone
+        hasLineOfSight = playerInCone && ComputeLineOfSight();
+
+        DetectPlayer_Cone();
+
+        // cooldown if lost
         if (!isDetectingPlayer && isChasing)
         {
             cooldownTimer += Time.deltaTime;
@@ -55,9 +98,7 @@ public class PoliceMovement : MonoBehaviour
         }
 
         if (isDetectingPlayer)
-        {
             cooldownTimer = 0f;
-        }
     }
 
     void Patrol()
@@ -129,45 +170,82 @@ public class PoliceMovement : MonoBehaviour
         }
     }
 
-    void DetectPlayer()
+    bool IsPlayerInsideCone()
+    {
+        if (coneCol == null || player == null) return false;
+
+        int count = coneCol.OverlapCollider(playerFilter, overlapResults);
+        for (int i = 0; i < count; i++)
+        {
+            var col = overlapResults[i];
+            if (col == null) continue;
+            if (col.transform == player || col.transform.IsChildOf(player))
+                return true;
+        }
+        return false;
+    }
+
+    bool ComputeLineOfSight()
+    {
+        if (player == null) return false;
+
+        // Stealth check (optional). If not implemented, returns false and we keep going.
+        if (PlayerIsStealthed())
+            return false;
+
+        Vector2 origin = viewCone != null ? (Vector2)viewCone.position : (Vector2)transform.position;
+        Vector2 toPlayer = (Vector2)player.position - origin;
+
+        float maxDist = Mathf.Min(toPlayer.magnitude, detectionRange <= 0f ? 9999f : detectionRange);
+
+        int mask = obstructionMask | playerMask;
+        var hits = Physics2D.RaycastAll(origin, toPlayer.normalized, maxDist, mask);
+
+        bool los = false;
+        foreach (var h in hits)
+        {
+            if (h.collider == null) continue;
+
+            if (h.collider.transform == player)
+            {
+                los = true;   // first hit is player → visible
+            }
+            break;             // first hit decides either way
+        }
+
+        if (los)
+        {
+            bool facingRight = movingRight;
+            bool playerIsRight = toPlayer.x > 0f;
+            if (playerIsRight != facingRight)
+                los = false; // optional: only in front
+        }
+
+        return los;
+    }
+
+    void DetectPlayer_Cone()
     {
         if (player == null || eyeUI == null) return;
 
-        Movement playerMovement = player.GetComponent<Movement>();
-        if (playerMovement != null && playerMovement.IsStealthed())
-        {
-            if (isDetectingPlayer)
-            {
-                isDetectingPlayer = false;
-                eyeUI.StopDetection();
-                Debug.Log($"[{gameObject.name}] Player is hiding or transformed. Stop detection.");
-            }
-            return;
-        }
-
-        float xDist = Mathf.Abs(transform.position.x - player.position.x);
-        float yDist = Mathf.Abs(transform.position.y - player.position.y);
-        bool inRange = xDist <= detectionRange && yDist <= 1.5f;
-
-        if (inRange)
+        if (playerInCone && hasLineOfSight)
         {
             if (!isDetectingPlayer)
             {
                 isDetectingPlayer = true;
-                eyeUI.StartDetection();
-                Debug.Log($"[{gameObject.name}] Player ENTERED vision.");
+                eyeUI.StartDetection(detectionFillSpeed);
+                Debug.Log($"[{name}] Player VISIBLE in cone (LOS).");
             }
 
             if (!isChasing && !eyeUI.IsFullyDetected())
-            {
                 isChasing = true;
-            }
 
             if (eyeUI.IsFullyDetected())
             {
                 eyeUI.ResetDetection();
-                player.GetComponent<Movement>().GetCaught();
-                Debug.Log($"[{gameObject.name}] Player CAUGHT.");
+                var mv = player.GetComponent<Movement>();
+                if (mv != null) mv.GetCaught();
+                Debug.Log($"[{name}] Player CAUGHT.");
             }
         }
         else
@@ -175,15 +253,55 @@ public class PoliceMovement : MonoBehaviour
             if (isDetectingPlayer)
             {
                 isDetectingPlayer = false;
-                eyeUI.StopDetection();
-                Debug.Log($"[{gameObject.name}] Player EXITED vision.");
+                eyeUI.StopDetection(detectionDrainSpeed);
+                Debug.Log($"[{name}] Player NOT visible (left cone or blocked).");
             }
         }
     }
 
+    bool PlayerIsStealthed()
+    {
+        if (player == null) return false;
+
+        var comps = player.GetComponents<Component>();
+        foreach (var c in comps)
+        {
+            if (c == null) continue;
+            var t = c.GetType();
+
+            var prop = t.GetProperty("IsStealthed", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (prop != null && prop.PropertyType == typeof(bool))
+            {
+                try { if ((bool)prop.GetValue(c) == true) return true; } catch { }
+            }
+
+            var field = t.GetField("IsStealthed", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (field != null && field.FieldType == typeof(bool))
+            {
+                try { if ((bool)field.GetValue(c) == true) return true; } catch { }
+            }
+
+            var method = t.GetMethod("IsStealthed", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+            if (method != null && method.ReturnType == typeof(bool))
+            {
+                try { if ((bool)method.Invoke(c, null) == true) return true; } catch { }
+            }
+        }
+        return false;
+    }
+
     void OnDrawGizmosSelected()
     {
+        if (viewCone != null)
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(viewCone.position, 0.07f);
+        }
+
         Gizmos.color = Color.red;
-        Gizmos.DrawWireCube(new Vector3(transform.position.x, transform.position.y, 0), new Vector3(detectionRange * 2, 3f, 0.1f));
+        Gizmos.DrawWireCube(
+            new Vector3(transform.position.x, transform.position.y, 0),
+            new Vector3(detectionRange * 2f, 3f, 0.1f)
+        );
     }
 }

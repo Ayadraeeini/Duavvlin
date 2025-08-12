@@ -18,11 +18,15 @@ public class EyeDetectionUI : MonoBehaviour
     public float firstStageTime = 0.5f;
     public float secondStageTime = 2f;
     public float fullDetectionTime = 4f;
+    public float timeBeforeReset = 3f;
+
+    // Detection speed controls
+    private float currentDetectionSpeed = 1f;
+    private float currentDrainSpeed = 1f;
 
     private float detectionTimer = 0f;
     private int activeDetections = 0;
     private float lossTimer = 0f;
-    public float timeBeforeReset = 3f;
 
     void Start()
     {
@@ -38,7 +42,7 @@ public class EyeDetectionUI : MonoBehaviour
 
     void Update()
     {
-        // ✅ Step 1: Follow player with screen position conversion
+        // ✅ Follow player with screen position conversion
         if (player != null && eyeCanvas != null)
         {
             Vector3 worldPos = player.position + offset;
@@ -46,10 +50,10 @@ public class EyeDetectionUI : MonoBehaviour
             eyeCanvas.transform.position = screenPos;
         }
 
-        // ✅ Step 2: Handle detection logic
+        // ✅ Handle detection logic
         if (activeDetections > 0)
         {
-            detectionTimer += Time.deltaTime;
+            detectionTimer += Time.deltaTime * currentDetectionSpeed;
             lossTimer = 0f;
         }
         else
@@ -62,7 +66,7 @@ public class EyeDetectionUI : MonoBehaviour
             }
             else
             {
-                detectionTimer = Mathf.MoveTowards(detectionTimer, 0f, Time.deltaTime * 2f);
+                detectionTimer = Mathf.MoveTowards(detectionTimer, 0f, Time.deltaTime * currentDrainSpeed);
             }
         }
 
@@ -79,17 +83,19 @@ public class EyeDetectionUI : MonoBehaviour
             eyeImage.sprite = eyeOpen;
     }
 
-    public void StartDetection()
+    public void StartDetection(float detectionSpeed)
     {
+        currentDetectionSpeed = detectionSpeed;
         activeDetections++;
         lossTimer = 0f;
-        Debug.Log($"[EyeUI] StartDetection → activeDetections = {activeDetections}");
+        Debug.Log($"[EyeUI] StartDetection → activeDetections = {activeDetections}, speed = {detectionSpeed}");
     }
 
-    public void StopDetection()
+    public void StopDetection(float drainSpeed)
     {
+        currentDrainSpeed = drainSpeed;
         activeDetections = Mathf.Max(0, activeDetections - 1);
-        Debug.Log($"[EyeUI] StopDetection → activeDetections = {activeDetections}");
+        Debug.Log($"[EyeUI] StopDetection → activeDetections = {activeDetections}, drain = {drainSpeed}");
     }
 
     public bool IsFullyDetected()

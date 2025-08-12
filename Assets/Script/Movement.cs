@@ -1,129 +1,194 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
 
+[RequireComponent(typeof(Rigidbody2D))]
+[RequireComponent(typeof(SpriteRenderer))]
 public class Movement : MonoBehaviour
 {
-    [Header("Movement Settings")]
+    [Header("Input (Input System)")]
+    public InputReader input; // ← drag your InputReader here (optional fallback to old input)
+
+    [Header("Movement")]
     public float speed = 5f;
-    public float jumpForce = 10f;
+    public float jumpVelocity = 10f;       // vertical velocity
+    public float gravityWhenNormal = 3f;
+
+    [Header("Climbing (optional)")]
     public float climbSpeed = 3f;
 
-    [Header("UI")]
+    [Header("Ground Check (optional)")]
+    public Transform groundCheck;          // empty at feet (optional)
+    public float groundCheckRadius = 0.12f;
+    public LayerMask groundLayer;          // set in Inspector
+
+    [Header("UI (optional)")]
     public GameObject bustedImage;
-    public float bustedDuration = 2f;
+    public float bustedDuration = 2f;      // will be capped to 3s
 
-    private Rigidbody2D rb;
-    private SpriteRenderer sr;
-    private PlayerTransform playerTransformScript;
+    [Header("Respawn")]
+    public bool respawnToNearestSprayBox = true; // if false, always restart level
+    public string sprayBoxTag = "SprayBox";      // tag for your spray/checkpoint objects
+    public float behindTolerance = 0.05f;        // must be at least this much behind on X
 
-    private bool isJumping = false;
-    private bool isClimbing = false;
-    private bool isFrozen = false;
-    private bool isHiding = false;
-    private bool nearLadder = false;
-    private bool nearHideSpot = false;
-    private bool onGround = false;
+    // --- Internals ---
+    Rigidbody2D rb;
+    SpriteRenderer sr;
+    PlayerTransform playerTransform;       // your transform script
 
-    void Start()
+    bool isFrozen = false;
+    bool onGround = false;
+    bool nearLadder = false;
+    bool isClimbing = false;
+    bool nearHideSpot = false;
+    bool isHiding = false;
+
+    float inputX, inputY;
+
+    // --------------------------------------
+    // Lifecycle
+    // --------------------------------------
+    void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         sr = GetComponent<SpriteRenderer>();
-        playerTransformScript = GetComponent<PlayerTransform>();
+        playerTransform = GetComponent<PlayerTransform>();
 
-        if (bustedImage != null)
-            bustedImage.SetActive(false);
+        // Base physics on load
+        rb.gravityScale = gravityWhenNormal;
+
+        // Ensure busted image is hidden on load
+        if (bustedImage) bustedImage.SetActive(false);
+
+        // Ensure the game is not globally paused on load
+        Time.timeScale = 1f;
+        isFrozen = false;
+    }
+
+    void Start()
+    {
+        // Spawn at SpawnPoint if present (tag any Transform in your scene as "SpawnPoint")
+        var spawn = GameObject.FindWithTag("SpawnPoint");
+        if (spawn != null)
+        {
+            transform.position = spawn.transform.position;
+
+            // Optional: if you have a SpawnPoint component with facing
+            var sp = spawn.GetComponent<SpawnPoint>();
+            if (sp != null) sr.flipX = !sp.faceRight;
+        }
     }
 
     void Update()
     {
         if (isFrozen) return;
 
-        HandleInput();
-
-        float verticalInput = Input.GetAxisRaw("Vertical");
-
-        if (nearLadder)
+        // If transformed, stop all control (change if you want movement while transformed)
+        bool transformed = playerTransform != null && playerTransform.IsTransformed();
+        if (transformed)
         {
-            if (Mathf.Abs(verticalInput) > 0)
-            {
-                isClimbing = true;
-                rb.gravityScale = 0f;
-            }
-            else if (isClimbing && onGround && Mathf.Abs(rb.velocity.y) < 0.01f)
-            {
-                isClimbing = false;
-                rb.gravityScale = 1f;
-            }
+            rb.velocity = Vector2.zero;
+            return;
         }
 
-        if (!nearLadder)
+        // -------- Read input (Input System first, fallback to old Input) --------
+        Vector2 move = Vector2.zero;
+        bool jumpPressed = false;
+        bool hidePressed = false;
+        bool pausePressed = false;
+
+        if (input != null)
+        {
+            move = input.Move();
+            jumpPressed = input.JumpPressed();
+            hidePressed = input.HidePressed();
+            pausePressed = input.PausePressed();
+        }
+        else
+        {
+            // Fallback (keeps things working if InputReader not set)
+            move.x = Input.GetAxisRaw("Horizontal");
+            move.y = Input.GetAxisRaw("Vertical");
+            jumpPressed = Input.GetKeyDown(KeyCode.Space);
+            hidePressed = Input.GetKeyDown(KeyCode.H);
+            pausePressed = Input.GetKeyDown(KeyCode.Return); // same as your quick restart
+        }
+
+        inputX = move.x;
+        inputY = move.y;
+        // ----------------------------------------------------------------------
+
+        // Grounded check
+        if (groundCheck)
+            onGround = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
+
+        // Jump
+        if (jumpPressed && onGround && !isClimbing && !isHiding)
+        {
+            rb.velocity = new Vector2(rb.velocity.x, jumpVelocity);
+        }
+
+        // Hide toggle
+        if (hidePressed && nearHideSpot)
+        {
+            isHiding = !isHiding;
+            var c = sr.color;
+            sr.color = new Color(c.r, c.g, c.b, isHiding ? 0f : 1f);
+            if (isHiding) rb.velocity = Vector2.zero;
+        }
+
+        // Quick restart (kept your Return behavior; also mapped to Pause action if you prefer)
+        if (pausePressed)
+        {
+            ReloadSceneFresh();
+        }
+
+        // Ladder state
+        if (nearLadder && Mathf.Abs(inputY) > 0.01f)
+        {
+            isClimbing = true;
+            rb.gravityScale = 0f;
+        }
+        else if (!nearLadder)
         {
             isClimbing = false;
-            rb.gravityScale = 1f;
+            rb.gravityScale = gravityWhenNormal;
+        }
+    }
+
+    void FixedUpdate()
+    {
+        if (isFrozen) return;
+
+        // If transformed or hiding, no movement
+        bool transformed = playerTransform != null && playerTransform.IsTransformed();
+        if (transformed || isHiding)
+        {
+            rb.velocity = Vector2.zero;
+            return;
         }
 
         if (isClimbing)
         {
-            HandleClimbing();
+            rb.velocity = new Vector2(inputX * speed, inputY * climbSpeed);
         }
+        else
+        {
+            rb.velocity = new Vector2(inputX * speed, rb.velocity.y);
+        }
+
+        // Face direction
+        if (inputX > 0.1f) sr.flipX = false;
+        else if (inputX < -0.1f) sr.flipX = true;
     }
 
-    private void HandleInput()
-    {
-        float moveX = Input.GetAxisRaw("Horizontal");
-
-        if (!isClimbing)
-        {
-            rb.velocity = new Vector2(moveX * speed, rb.velocity.y);
-        }
-
-        if (Input.GetKeyDown(KeyCode.Space) && !isJumping && !isClimbing)
-        {
-            rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
-            isJumping = true;
-        }
-
-        if (Input.GetKeyDown(KeyCode.H) && nearHideSpot)
-        {
-            ToggleHiding();
-        }
-
-        if (Input.GetKeyDown(KeyCode.T))
-        {
-            // The actual transform is handled inside PlayerTransform.cs
-        }
-
-        if (Input.GetKeyDown(KeyCode.Return))
-        {
-            SceneManager.LoadScene("TutorialLevel");
-        }
-    }
-
-    private void HandleClimbing()
-    {
-        float moveY = Input.GetAxisRaw("Vertical");
-        float moveX = Input.GetAxisRaw("Horizontal");
-        rb.velocity = new Vector2(moveX * speed, moveY * climbSpeed);
-    }
-
-    private void ToggleHiding()
-    {
-        isHiding = !isHiding;
-        sr.color = new Color(sr.color.r, sr.color.g, sr.color.b, isHiding ? 0f : 1f);
-        rb.velocity = Vector2.zero;
-    }
-
+    // --------------------------------------
+    // Triggers for ladder/hide spots
+    // --------------------------------------
     void OnTriggerEnter2D(Collider2D other)
     {
-        if (other.CompareTag("Ladder"))
-        {
-            nearLadder = true;
-        }
-        else if (other.CompareTag("HideSpot"))
-        {
-            nearHideSpot = true;
-        }
+        if (other.CompareTag("Ladder")) nearLadder = true;
+        else if (other.CompareTag("HideSpot")) nearHideSpot = true;
     }
 
     void OnTriggerExit2D(Collider2D other)
@@ -132,60 +197,157 @@ public class Movement : MonoBehaviour
         {
             nearLadder = false;
             isClimbing = false;
-            rb.gravityScale = 1f;
+            rb.gravityScale = gravityWhenNormal;
         }
         else if (other.CompareTag("HideSpot"))
         {
             nearHideSpot = false;
             if (isHiding)
-                ToggleHiding();
-        }
-    }
-
-    void OnCollisionEnter2D(Collision2D collision)
-    {
-        if (collision.collider.CompareTag("Ground"))
-        {
-            onGround = true;
-            isJumping = false;
-
-            if (isClimbing)
             {
-                isClimbing = false;
-                rb.gravityScale = 1f;
-                rb.velocity = Vector2.zero;
+                isHiding = false;
+                var c = sr.color;
+                sr.color = new Color(c.r, c.g, c.b, 1f);
             }
         }
     }
 
-    void OnCollisionExit2D(Collision2D collision)
+    // --------------------------------------
+    // Ground via collisions (backup)
+    // --------------------------------------
+    void OnCollisionEnter2D(Collision2D c)
     {
-        if (collision.collider.CompareTag("Ground"))
-        {
-            onGround = false;
-        }
+        if (c.collider.CompareTag("Ground")) onGround = true;
+    }
+    void OnCollisionExit2D(Collision2D c)
+    {
+        if (c.collider.CompareTag("Ground")) onGround = false;
     }
 
+    // --------------------------------------
+    // Busted flow → respawn to nearest SprayBox or restart
+    // --------------------------------------
     public void GetCaught()
     {
-        StartCoroutine(FreezeShowBustedThenRestart());
+        if (!isFrozen) StartCoroutine(FreezeShowBustedThenRespawn());
     }
 
-    private IEnumerator FreezeShowBustedThenRestart()
+    IEnumerator FreezeShowBustedThenRespawn()
     {
         isFrozen = true;
-        rb.velocity = Vector2.zero;
 
-        if (bustedImage != null)
+        // Stop player motion immediately
+        rb.velocity = Vector2.zero;
+        rb.angularVelocity = 0f;
+
+        // Show busted overlay
+        if (bustedImage) bustedImage.SetActive(true);
+
+        // Wait in REAL time (ignores Time.timeScale), cap at 3s
+        float wait = Mathf.Min(bustedDuration, 3f);
+        yield return new WaitForSecondsRealtime(wait);
+
+        // Ensure game unpaused before respawn / reload
+        Time.timeScale = 1f;
+
+        // Try respawn, else reload
+        if (respawnToNearestSprayBox)
         {
-            bustedImage.SetActive(true);
+            Transform target = FindNearestSprayBoxBehind();
+            if (target != null)
+            {
+                RespawnAt(target.position);
+                yield break;
+            }
         }
 
-        yield return new WaitForSeconds(bustedDuration);
-        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        // Fallback: full reload
+        ReloadSceneFresh();
     }
 
-    public bool IsHiding() => isHiding;
-    public bool IsTransformed() => playerTransformScript != null && playerTransformScript.IsTransformed();
-    public bool IsStealthed() => IsHiding() || IsTransformed();
+    // --------------------------------------
+    // Helpers
+    // --------------------------------------
+    void ReloadSceneFresh()
+    {
+        if (bustedImage) bustedImage.SetActive(false);
+        var sceneName = SceneManager.GetActiveScene().name;
+        SceneManager.LoadScene(sceneName);
+    }
+
+    Transform FindNearestSprayBoxBehind()
+    {
+        GameObject[] sprays = GameObject.FindGameObjectsWithTag(sprayBoxTag);
+        if (sprays == null || sprays.Length == 0) return null;
+
+        float px = transform.position.x;
+        Transform best = null;
+        float bestDelta = Mathf.Infinity;
+
+        foreach (var go in sprays)
+        {
+            float dx = px - go.transform.position.x; // positive if spray is behind
+            if (dx >= behindTolerance)
+            {
+                if (dx < bestDelta)
+                {
+                    bestDelta = dx;
+                    best = go.transform;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    void RespawnAt(Vector3 pos)
+    {
+        if (bustedImage) bustedImage.SetActive(false);
+
+        transform.position = pos;
+
+        rb.velocity = Vector2.zero;
+        rb.angularVelocity = 0f;
+        rb.gravityScale = gravityWhenNormal;
+
+        isFrozen = false;
+        onGround = false;
+        nearLadder = false;
+        isClimbing = false;
+        nearHideSpot = false;
+        isHiding = false;
+
+        if (sr != null)
+        {
+            var c = sr.color;
+            sr.color = new Color(c.r, c.g, c.b, 1f);
+        }
+    }
+
+    public void ResetForNewScene(Transform spawn)
+    {
+        transform.position = spawn.position;
+
+        rb.velocity = Vector2.zero;
+        rb.angularVelocity = 0f;
+        rb.gravityScale = gravityWhenNormal;
+
+        isFrozen = false;
+        onGround = false;
+        nearLadder = false;
+        isClimbing = false;
+        nearHideSpot = false;
+        isHiding = false;
+
+        if (sr != null)
+        {
+            var c = sr.color;
+            sr.color = new Color(c.r, c.g, c.b, 1f);
+        }
+    }
+
+    // ✅ Needed for PoliceMovement & SecurityCamera
+    public bool IsStealthed()
+    {
+        return isHiding || (playerTransform != null && playerTransform.IsTransformed());
+    }
 }
