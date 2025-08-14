@@ -1,28 +1,34 @@
-using UnityEngine;
+﻿using UnityEngine;
 
+[RequireComponent(typeof(SpriteRenderer))]
+[RequireComponent(typeof(Collider2D))]
 public class SprayBox : MonoBehaviour
 {
+    // ====== UI/Art Setup ======
     [Header("Resource Names (Resources/...)")]
+    [Tooltip("Resources/outline1.png → use 'outline1'")]
     public string outlineImageName = "outline1";
+    [Tooltip("Resources/final1.png → use 'final1'")]
     public string finalImageName = "final1";
 
-    [Header("Scales")]
+    [Header("Child Sprite Scales")]
     public Vector3 outlineScale = new Vector3(0.48f, 0.396f, 0.52f);
     public Vector3 finalScale = new Vector3(0.81f, 0.66f, 0.87f);
 
     [Header("Completion VFX")]
     public GameObject completionEffectPrefab;
 
-    // --- Audio ---
+    // ====== Audio ======
     public enum SoundMode { StagedClips, SingleClipWithPitch }
+
     [Header("Audio")]
     public SoundMode soundMode = SoundMode.StagedClips;
-    public AudioSource audioSource;           // If null, will be auto-created
+    public AudioSource audioSource;             // If null, auto-added on Start
     [Range(0f, 1f)] public float baseVolume = 0.9f;
 
-    [Tooltip("Stages used when SoundMode = StagedClips (0..n-1), last stage will be near-complete. Optional Final clip below.")]
-    public AudioClip[] stageClips;            // e.g., 4 clips for rising intensity
-    [Tooltip("Played exactly on completion.")]
+    [Tooltip("Used when SoundMode = StagedClips. E.g. 4 clips increasing in intensity.")]
+    public AudioClip[] stageClips;
+    [Tooltip("Played exactly on completion (overrides others).")]
     public AudioClip finalClip;
 
     [Tooltip("Used when SoundMode = SingleClipWithPitch.")]
@@ -30,31 +36,47 @@ public class SprayBox : MonoBehaviour
     [Tooltip("Pitch range for SingleClipWithPitch mode.")]
     public Vector2 pitchRange = new Vector2(1.0f, 1.5f);
 
-    // --- Internals ---
-    private SpriteRenderer outlineRenderer;
-    private SpriteRenderer finalRenderer;
+    // ====== Progress ======
+    [Header("Progress (read-only at runtime)")]
+    [SerializeField] private int outlinePresses = 0;
+    [SerializeField] private int finalPresses = 0;
+    [SerializeField] private bool isCompleted = false;
+    public bool IsCompleted => isCompleted;
+
+    [Tooltip("Number of presses needed to fill outline, then final.")]
+    public int maxPresses = 4;
+
+    // ====== Player Proximity ======
+    [Header("Player Proximity")]
+    [Tooltip("Require player be inside trigger to accept 'E'.")]
+    public bool requirePlayerInRange = true;
+    private bool isPlayerInRange = false;
+
+    // ====== Internals ======
     private SpriteRenderer baseRenderer;
     private Collider2D boxCollider;
+    private SpriteRenderer outlineRenderer;
+    private SpriteRenderer finalRenderer;
 
-    private int outlinePresses = 0;
-    private int finalPresses = 0;
-    private const int maxPresses = 4; // 4 presses for outline, 4 presses for final
+    // ====== Global completion event (PopularityMeter listens) ======
+    public static System.Action<SprayBox> OnAnySprayCompleted;
 
-    private bool isPlayerInRange = false; // To track player proximity
+    // -------------------------- Unity Lifecycle --------------------------
+    void Awake()
+    {
+        baseRenderer = GetComponent<SpriteRenderer>();
+        boxCollider = GetComponent<Collider2D>();
+    }
 
     void Start()
     {
-        // Base components
-        baseRenderer = GetComponent<SpriteRenderer>();
-        boxCollider = GetComponent<Collider2D>();
-
         // Load textures
         Texture2D outlineTex = Resources.Load<Texture2D>(outlineImageName);
         Texture2D finalTex = Resources.Load<Texture2D>(finalImageName);
 
         if (outlineTex == null || finalTex == null)
         {
-            Debug.LogError("[SprayBox] Textures not found! Check Resources folder and file names.");
+            Debug.LogError($"[SprayBox:{name}] Missing textures. Check Resources path names.");
             return;
         }
 
@@ -65,6 +87,8 @@ public class SprayBox : MonoBehaviour
         outlineGO.transform.localScale = outlineScale;
         outlineRenderer = outlineGO.AddComponent<SpriteRenderer>();
         outlineRenderer.sprite = Sprite.Create(outlineTex, new Rect(0, 0, outlineTex.width, outlineTex.height), new Vector2(0.5f, 0.5f));
+        outlineRenderer.sortingLayerID = baseRenderer.sortingLayerID;
+        outlineRenderer.sortingOrder = baseRenderer.sortingOrder + 1;
         outlineRenderer.color = new Color(1f, 1f, 1f, 0f);
 
         // Create Final child
@@ -74,6 +98,8 @@ public class SprayBox : MonoBehaviour
         finalGO.transform.localScale = finalScale;
         finalRenderer = finalGO.AddComponent<SpriteRenderer>();
         finalRenderer.sprite = Sprite.Create(finalTex, new Rect(0, 0, finalTex.width, finalTex.height), new Vector2(0.5f, 0.5f));
+        finalRenderer.sortingLayerID = baseRenderer.sortingLayerID;
+        finalRenderer.sortingOrder = baseRenderer.sortingOrder + 2;
         finalRenderer.color = new Color(1f, 1f, 1f, 0f);
 
         // AudioSource fallback
@@ -81,89 +107,113 @@ public class SprayBox : MonoBehaviour
         {
             audioSource = gameObject.AddComponent<AudioSource>();
             audioSource.playOnAwake = false;
-            audioSource.spatialBlend = 0f; // 2D by default; set >0 if you want 3D audio
+            audioSource.spatialBlend = 0f; // 2D sound
         }
+
+        // Collider should be trigger to detect player entry
+        if (!boxCollider.isTrigger)
+            Debug.LogWarning($"[SprayBox:{name}] Collider2D is not a trigger. Consider enabling IsTrigger for proximity.");
     }
 
     void Update()
     {
-        if (isPlayerInRange && Input.GetKeyDown(KeyCode.E)) // Check if player is in range and pressed 'E'
+        if (isCompleted) return;
+
+        // Press E to paint if in range (or if range not required)
+        if ((!requirePlayerInRange || isPlayerInRange) && Input.GetKeyDown(KeyCode.E))
         {
-            Paint(); // Call the Paint function when 'E' is pressed
+            Paint();
         }
     }
 
-    // Trigger detection for the player
-    private void OnTriggerEnter2D(Collider2D other)
+    // -------------------------- Trigger Proximity --------------------------
+    void OnTriggerEnter2D(Collider2D other)
     {
-        if (other.CompareTag("Player"))
-        {
-            isPlayerInRange = true;
-        }
+        if (!requirePlayerInRange) return;
+        if (other.CompareTag("Player")) isPlayerInRange = true;
     }
 
-    private void OnTriggerExit2D(Collider2D other)
+    void OnTriggerExit2D(Collider2D other)
     {
-        if (other.CompareTag("Player"))
-        {
-            isPlayerInRange = false;
-        }
+        if (!requirePlayerInRange) return;
+        if (other.CompareTag("Player")) isPlayerInRange = false;
     }
 
+    // -------------------------- Painting Logic --------------------------
     /// <summary>
-    /// Call this once per press.
+    /// Call this once per press (either by Update 'E' or your PlayerInteraction).
     /// </summary>
     public void Paint()
     {
         if (outlineRenderer == null || finalRenderer == null) return;
+        if (isCompleted) return;
 
         bool justCompleted = false;
 
-        // First fill outline (0..4), then final (0..4)
+        // Fill outline first, then final
         if (outlinePresses < maxPresses)
         {
             outlinePresses++;
-            float alpha = outlinePresses / (float)maxPresses;
-            outlineRenderer.color = new Color(1f, 1f, 1f, alpha);
+            float a = outlinePresses / (float)maxPresses;
+            outlineRenderer.color = new Color(1f, 1f, 1f, a);
         }
         else if (finalPresses < maxPresses)
         {
             finalPresses++;
-            float alpha = finalPresses / (float)maxPresses;
-            finalRenderer.color = new Color(1f, 1f, 1f, alpha);
+            float a = finalPresses / (float)maxPresses;
+            finalRenderer.color = new Color(1f, 1f, 1f, a);
 
             if (finalPresses == maxPresses)
-            {
                 justCompleted = true;
-                HideBaseBox();
-            }
         }
 
-        // Play sound after updating progress so audio reflects the *new* state
-        float progress = GetProgress01(); // 0..1 after this press
+        float progress01 = GetProgress01();
 
         if (justCompleted)
         {
-            PlayFinalSound(); // force the final sound on completion
+            CompleteSpray();
         }
         else
         {
-            PlayProgressSound(progress);
+            PlayProgressSound(progress01);
         }
     }
 
     private float GetProgress01()
     {
-        float total = maxPresses * 2f; // outline + final
+        float total = maxPresses * 2f;          // outline + final
         float current = outlinePresses + finalPresses;
         return Mathf.Clamp01(current / total);
     }
 
+    private void CompleteSpray()
+    {
+        if (isCompleted) return;
+        isCompleted = true;
+
+        HideBaseBox();    // visuals + disable collider
+        PlayFinalSound(); // strong finish
+
+        // Notify listeners (e.g., PopularityMeter)
+        OnAnySprayCompleted?.Invoke(this);
+    }
+
+    private void HideBaseBox()
+    {
+        if (baseRenderer != null) baseRenderer.enabled = false;
+        if (boxCollider != null) boxCollider.enabled = false;
+
+        if (completionEffectPrefab != null)
+            Instantiate(completionEffectPrefab, transform.position, Quaternion.identity);
+
+        Debug.Log($"[SprayBox:{name}] Graffiti COMPLETE → base box hidden, collider disabled.");
+    }
+
+    // -------------------------- Audio Helpers --------------------------
     private void PlayProgressSound(float progress01)
     {
         if (audioSource == null) return;
 
-        // Subtle volume ramp as we approach completion
         float vol = baseVolume * Mathf.Lerp(0.75f, 1f, progress01);
 
         switch (soundMode)
@@ -171,13 +221,10 @@ public class SprayBox : MonoBehaviour
             case SoundMode.StagedClips:
                 if (stageClips != null && stageClips.Length > 0)
                 {
-                    // Map progress 0..~0.999 to stage indices 0..(n-1)
                     int idx = Mathf.Clamp(Mathf.FloorToInt(progress01 * stageClips.Length), 0, stageClips.Length - 1);
-
-                    // If we're extremely close to complete but not finished, prefer the last stage
                     if (progress01 > 0.99f) idx = stageClips.Length - 1;
 
-                    AudioClip clip = stageClips[idx];
+                    var clip = stageClips[idx];
                     if (clip != null) audioSource.PlayOneShot(clip, vol);
                 }
                 break;
@@ -185,11 +232,9 @@ public class SprayBox : MonoBehaviour
             case SoundMode.SingleClipWithPitch:
                 if (singleSprayClip != null)
                 {
-                    float pitch = Mathf.Lerp(pitchRange.x, pitchRange.y, progress01);
-                    audioSource.pitch = pitch;
+                    audioSource.pitch = Mathf.Lerp(pitchRange.x, pitchRange.y, progress01);
                     audioSource.PlayOneShot(singleSprayClip, vol);
-                    // Reset pitch so it doesn't affect other sounds
-                    audioSource.pitch = 1f;
+                    audioSource.pitch = 1f; // reset
                 }
                 break;
         }
@@ -199,7 +244,6 @@ public class SprayBox : MonoBehaviour
     {
         if (audioSource == null) return;
 
-        // Prefer explicit finalClip
         if (finalClip != null)
         {
             audioSource.pitch = 1f;
@@ -207,7 +251,6 @@ public class SprayBox : MonoBehaviour
             return;
         }
 
-        // Fallbacks if no finalClip provided
         if (soundMode == SoundMode.StagedClips && stageClips != null && stageClips.Length > 0)
         {
             var last = stageClips[stageClips.Length - 1];
@@ -221,17 +264,11 @@ public class SprayBox : MonoBehaviour
         }
     }
 
-    private void HideBaseBox()
+#if UNITY_EDITOR
+    void OnValidate()
     {
-        if (baseRenderer != null) baseRenderer.enabled = false;
-        if (boxCollider != null) boxCollider.enabled = false;
-
-        Debug.Log("[SprayBox] Graffiti complete � base box hidden.");
-
-        if (completionEffectPrefab != null)
-        {
-            Instantiate(completionEffectPrefab, transform.position, Quaternion.identity);
-            Debug.Log("[SprayBox] Particle effect played.");
-        }
+        if (maxPresses < 1) maxPresses = 1;
+        if (pitchRange.x > pitchRange.y) pitchRange = new Vector2(pitchRange.y, pitchRange.x);
     }
+#endif
 }

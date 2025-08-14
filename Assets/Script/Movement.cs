@@ -45,6 +45,9 @@ public class Movement : MonoBehaviour
 
     float inputX, inputY;
 
+    // ✅ Speed multiplier hook (used by PlayerTransform)
+    private float speedMultiplier = 1f;
+
     // --------------------------------------
     // Lifecycle
     // --------------------------------------
@@ -63,19 +66,29 @@ public class Movement : MonoBehaviour
         // Ensure the game is not globally paused on load
         Time.timeScale = 1f;
         isFrozen = false;
+
+        // ensure default multiplier
+        speedMultiplier = 1f;
     }
 
     void Start()
     {
         // Spawn at SpawnPoint if present (tag any Transform in your scene as "SpawnPoint")
-        var spawn = GameObject.FindWithTag("SpawnPoint");
-        if (spawn != null)
+        try
         {
-            transform.position = spawn.transform.position;
+            var spawn = GameObject.FindWithTag("SpawnPoint");
+            if (spawn != null)
+            {
+                transform.position = spawn.transform.position;
 
-            // Optional: if you have a SpawnPoint component with facing
-            var sp = spawn.GetComponent<SpawnPoint>();
-            if (sp != null) sr.flipX = !sp.faceRight;
+                // Optional: if you have a SpawnPoint component with facing
+                var sp = spawn.GetComponent<SpawnPoint>();
+                if (sp != null) sr.flipX = !sp.faceRight;
+            }
+        }
+        catch (UnityException)
+        {
+            // Tag not defined—ignore and start where placed
         }
     }
 
@@ -83,13 +96,8 @@ public class Movement : MonoBehaviour
     {
         if (isFrozen) return;
 
-        // If transformed, stop all control (change if you want movement while transformed)
-        bool transformed = playerTransform != null && playerTransform.IsTransformed();
-        if (transformed)
-        {
-            rb.velocity = Vector2.zero;
-            return;
-        }
+        // We now ALLOW movement while transformed.
+        // Only hiding stops movement.
 
         // -------- Read input (Input System first, fallback to old Input) --------
         Vector2 move = Vector2.zero;
@@ -122,7 +130,7 @@ public class Movement : MonoBehaviour
         if (groundCheck)
             onGround = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
 
-        // Jump
+        // Jump (allowed while transformed unless you want otherwise)
         if (jumpPressed && onGround && !isClimbing && !isHiding)
         {
             rb.velocity = new Vector2(rb.velocity.x, jumpVelocity);
@@ -160,9 +168,8 @@ public class Movement : MonoBehaviour
     {
         if (isFrozen) return;
 
-        // If transformed or hiding, no movement
-        bool transformed = playerTransform != null && playerTransform.IsTransformed();
-        if (transformed || isHiding)
+        // Only hiding stops movement now.
+        if (isHiding)
         {
             rb.velocity = Vector2.zero;
             return;
@@ -170,11 +177,11 @@ public class Movement : MonoBehaviour
 
         if (isClimbing)
         {
-            rb.velocity = new Vector2(inputX * speed, inputY * climbSpeed);
+            rb.velocity = new Vector2(inputX * speed * speedMultiplier, inputY * climbSpeed);
         }
         else
         {
-            rb.velocity = new Vector2(inputX * speed, rb.velocity.y);
+            rb.velocity = new Vector2(inputX * speed * speedMultiplier, rb.velocity.y);
         }
 
         // Face direction
@@ -316,6 +323,8 @@ public class Movement : MonoBehaviour
         nearHideSpot = false;
         isHiding = false;
 
+        speedMultiplier = 1f; // reset any transform speed change
+
         if (sr != null)
         {
             var c = sr.color;
@@ -338,6 +347,8 @@ public class Movement : MonoBehaviour
         nearHideSpot = false;
         isHiding = false;
 
+        speedMultiplier = 1f;
+
         if (sr != null)
         {
             var c = sr.color;
@@ -349,5 +360,11 @@ public class Movement : MonoBehaviour
     public bool IsStealthed()
     {
         return isHiding || (playerTransform != null && playerTransform.IsTransformed());
+    }
+
+    // ✅ Hook for PlayerTransform to adjust speed in can-form
+    public void SetSpeedMultiplier(float m)
+    {
+        speedMultiplier = Mathf.Max(0f, m);
     }
 }
