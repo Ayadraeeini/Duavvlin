@@ -9,6 +9,10 @@ TagManager:
   - MemoryDot
   - Ladder
   - ProgressBar
+  - SprayBox
+  - brushPreFab
+  - Ground
+  - Party
   layers:
   - Default
   - TransparentFX
@@ -16,7 +20,7 @@ TagManager:
   - 
   - Water
   - UI
-  - HiddenUI
+  - 
   - 
   - 
   - 
