@@ -103,7 +103,7 @@ public class PlayerTransform : MonoBehaviour
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, canScale, transitionTime));
 
         // swap sprite
-        if (transformedSprite != null) sr.sprite = transformedSprite;
+        //if (transformedSprite != null) sr.sprite = transformedSprite;
 
         isTransformed = true;
         isTransitioning = false;
@@ -132,6 +132,7 @@ public class PlayerTransform : MonoBehaviour
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, originalScale, transitionTime));
 
         // swap sprite back
+
         if (normalSprite != null) sr.sprite = normalSprite;
 
         isTransformed = false;
@@ -143,6 +144,8 @@ public class PlayerTransform : MonoBehaviour
         {
             movement.SetSpeedMultiplier(1f);
         }
+
+        if (animator != null) animator.SetTrigger("SetHuman");
     }
 
     IEnumerator Co_AutoRevert(float delay)

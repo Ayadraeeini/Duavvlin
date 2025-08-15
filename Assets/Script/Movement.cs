@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using System.Collections;
+using System;
 
 [RequireComponent(typeof(Rigidbody2D))]
 [RequireComponent(typeof(SpriteRenderer))]
@@ -42,6 +43,8 @@ public class Movement : MonoBehaviour
     bool isClimbing = false;
     bool nearHideSpot = false;
     bool isHiding = false;
+
+    Animator animator;
 
     float inputX, inputY;
 
@@ -90,11 +93,15 @@ public class Movement : MonoBehaviour
         {
             // Tag not defined—ignore and start where placed
         }
+
+        animator = GetComponent<Animator>();
     }
 
     void Update()
     {
         if (isFrozen) return;
+
+        animator.SetFloat("xVelocity", Math.Abs(rb.velocity.x));
 
         // We now ALLOW movement while transformed.
         // Only hiding stops movement.
@@ -124,6 +131,7 @@ public class Movement : MonoBehaviour
 
         inputX = move.x;
         inputY = move.y;
+
         // ----------------------------------------------------------------------
 
         // Grounded check
