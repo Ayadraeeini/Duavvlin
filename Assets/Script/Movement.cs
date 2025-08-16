@@ -32,6 +32,10 @@ public class Movement : MonoBehaviour
     public string sprayBoxTag = "SprayBox";      // tag for your spray/checkpoint objects
     public float behindTolerance = 0.05f;        // must be at least this much behind on X
 
+    [Header("Axis Lock")]
+    public float lockedZ = 0f;             // keep player on this Z (usually 0)
+    public bool lockZAlways = true;
+
     // --- Internals ---
     Rigidbody2D rb;
     SpriteRenderer sr;
@@ -50,6 +54,17 @@ public class Movement : MonoBehaviour
 
     // ✅ Speed multiplier hook (used by PlayerTransform)
     private float speedMultiplier = 1f;
+
+    // --------------------------------------
+    // Helpers
+    // --------------------------------------
+    void ClampZ()
+    {
+        if (!lockZAlways) return;
+        var p = transform.position;
+        if (!Mathf.Approximately(p.z, lockedZ))
+            transform.position = new Vector3(p.x, p.y, lockedZ);
+    }
 
     // --------------------------------------
     // Lifecycle
@@ -72,6 +87,9 @@ public class Movement : MonoBehaviour
 
         // ensure default multiplier
         speedMultiplier = 1f;
+
+        // Ensure Z is locked at boot
+        ClampZ();
     }
 
     void Start()
@@ -83,15 +101,21 @@ public class Movement : MonoBehaviour
             if (spawn != null)
             {
                 transform.position = spawn.transform.position;
+                ClampZ(); // ensure z is locked after spawn
 
                 // Optional: if you have a SpawnPoint component with facing
                 var sp = spawn.GetComponent<SpawnPoint>();
                 if (sp != null) sr.flipX = !sp.faceRight;
             }
+            else
+            {
+                ClampZ(); // ensure z is correct even without a spawn point
+            }
         }
         catch (UnityException)
         {
             // Tag not defined—ignore and start where placed
+            ClampZ();
         }
 
         animator = GetComponent<Animator>();
@@ -102,9 +126,6 @@ public class Movement : MonoBehaviour
         if (isFrozen) return;
 
         animator.SetFloat("xVelocity", Math.Abs(rb.velocity.x));
-
-        // We now ALLOW movement while transformed.
-        // Only hiding stops movement.
 
         // -------- Read input (Input System first, fallback to old Input) --------
         Vector2 move = Vector2.zero;
@@ -126,19 +147,17 @@ public class Movement : MonoBehaviour
             move.y = Input.GetAxisRaw("Vertical");
             jumpPressed = Input.GetKeyDown(KeyCode.Space);
             hidePressed = Input.GetKeyDown(KeyCode.H);
-            pausePressed = Input.GetKeyDown(KeyCode.Return); // same as your quick restart
+            pausePressed = Input.GetKeyDown(KeyCode.Return); // quick restart
         }
 
         inputX = move.x;
         inputY = move.y;
 
-        // ----------------------------------------------------------------------
-
         // Grounded check
         if (groundCheck)
             onGround = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
 
-        // Jump (allowed while transformed unless you want otherwise)
+        // Jump (blocked while climbing/hiding)
         if (jumpPressed && onGround && !isClimbing && !isHiding)
         {
             rb.velocity = new Vector2(rb.velocity.x, jumpVelocity);
@@ -153,7 +172,7 @@ public class Movement : MonoBehaviour
             if (isHiding) rb.velocity = Vector2.zero;
         }
 
-        // Quick restart (kept your Return behavior; also mapped to Pause action if you prefer)
+        // Quick restart
         if (pausePressed)
         {
             ReloadSceneFresh();
@@ -170,6 +189,9 @@ public class Movement : MonoBehaviour
             isClimbing = false;
             rb.gravityScale = gravityWhenNormal;
         }
+
+        // Keep Z locked every frame
+        ClampZ();
     }
 
     void FixedUpdate()
@@ -318,7 +340,15 @@ public class Movement : MonoBehaviour
     {
         if (bustedImage) bustedImage.SetActive(false);
 
-        transform.position = pos;
+        // Force Z to the locked value
+        transform.position = new Vector3(pos.x, pos.y, lockedZ);
+
+        // ✅ Reset all police positions on respawn
+        PoliceMovement[] cops = FindObjectsOfType<PoliceMovement>();
+        foreach (var cop in cops)
+        {
+            cop.ResetPosition();
+        }
 
         rb.velocity = Vector2.zero;
         rb.angularVelocity = 0f;
@@ -338,11 +368,21 @@ public class Movement : MonoBehaviour
             var c = sr.color;
             sr.color = new Color(c.r, c.g, c.b, 1f);
         }
+
+        ClampZ(); // safety
     }
 
     public void ResetForNewScene(Transform spawn)
     {
-        transform.position = spawn.position;
+        // Force Z to the locked value
+        transform.position = new Vector3(spawn.position.x, spawn.position.y, lockedZ);
+
+        // ✅ Also reset police when a new scene spawn is used
+        PoliceMovement[] cops = FindObjectsOfType<PoliceMovement>();
+        foreach (var cop in cops)
+        {
+            cop.ResetPosition();
+        }
 
         rb.velocity = Vector2.zero;
         rb.angularVelocity = 0f;
@@ -362,6 +402,8 @@ public class Movement : MonoBehaviour
             var c = sr.color;
             sr.color = new Color(c.r, c.g, c.b, 1f);
         }
+
+        ClampZ(); // safety
     }
 
     // ✅ Needed for PoliceMovement & SecurityCamera

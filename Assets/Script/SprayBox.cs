@@ -16,7 +16,7 @@ public class SprayBox : MonoBehaviour
     public Vector3 finalScale = new Vector3(0.81f, 0.66f, 0.87f);
 
     [Header("Completion VFX")]
-    public GameObject completionEffectPrefab;
+    public GameObject completionEffectPrefab; // ← your existing particle (kept as-is)
 
     // ====== Audio ======
     public enum SoundMode { StagedClips, SingleClipWithPitch }
@@ -191,11 +191,15 @@ public class SprayBox : MonoBehaviour
         if (isCompleted) return;
         isCompleted = true;
 
-        HideBaseBox();    // visuals + disable collider
+        HideBaseBox();    // visuals + disable collider (spawns your existing particle if assigned)
         PlayFinalSound(); // strong finish
 
         // Notify listeners (e.g., PopularityMeter)
         OnAnySprayCompleted?.Invoke(this);
+
+        // 🔔 Recognition popup over the meter (uses your UI singleton)
+        if (RecognitionFlash.Instance != null)
+            RecognitionFlash.Instance.ShowRecognition(); // random message/color & punch animation
     }
 
     private void HideBaseBox()

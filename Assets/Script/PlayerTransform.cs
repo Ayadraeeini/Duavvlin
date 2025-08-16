@@ -1,6 +1,8 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System;
+using UnityEngine.UI;       // for Legacy Text
+using TMPro;                // for TextMeshProUGUI
 
 public class PlayerTransform : MonoBehaviour
 {
@@ -16,7 +18,7 @@ public class PlayerTransform : MonoBehaviour
     public float transitionTime = 0.5f;
 
     [Tooltip("Auto revert after this many seconds.")]
-    public float maxTransformDuration = 5f; // exactly 5s per your request
+    public float maxTransformDuration = 5f; // exactly 5s
 
     [Header("Duration Control")]
     [Tooltip("If true, player cannot manually revert early; transformation lasts the full duration.")]
@@ -31,6 +33,16 @@ public class PlayerTransform : MonoBehaviour
     [Tooltip("Optional speed multiplier while transformed (1 = same speed).")]
     public float transformedSpeedMultiplier = 1f;
 
+    [Header("Countdown UI (optional)")]
+    [Tooltip("Assign a TextMeshProUGUI for UI canvas countdown (preferred).")]
+    public TextMeshProUGUI countdownTMP;
+    [Tooltip("Or assign a Legacy Text if not using TMP.")]
+    public Text countdownText;
+    [Tooltip("Fade the countdown in/out automatically.")]
+    public bool fadeCountdown = true;
+    [Tooltip("How fast the countdown fades in/out.")]
+    public float countdownFadeTime = 0.15f;
+
     // Components & state
     private SpriteRenderer sr;
     private Animator animator;
@@ -42,6 +54,7 @@ public class PlayerTransform : MonoBehaviour
     // Coroutines
     private Coroutine activeTransition;
     private Coroutine autoRevertRoutine;
+    private Coroutine countdownFadeRoutine;
 
     // Optional event
     public event Action<bool> OnTransformedChanged;
@@ -56,6 +69,10 @@ public class PlayerTransform : MonoBehaviour
 
         if (normalSprite != null) sr.sprite = normalSprite;
         if (animator == null) Debug.LogWarning("Animator is missing from Player!");
+
+        // Ensure countdown hidden at start
+        SetCountdownVisible(false, true);
+        SetCountdownText(""); // clear
     }
 
     void Update()
@@ -102,8 +119,8 @@ public class PlayerTransform : MonoBehaviour
         // scale down
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, canScale, transitionTime));
 
-        // swap sprite
-        //if (transformedSprite != null) sr.sprite = transformedSprite;
+        // swap sprite (optional)
+        // if (transformedSprite != null) sr.sprite = transformedSprite;
 
         isTransformed = true;
         isTransitioning = false;
@@ -115,10 +132,10 @@ public class PlayerTransform : MonoBehaviour
             movement.SetSpeedMultiplier(transformedSpeedMultiplier); // Movement has this now
         }
 
-        // auto revert (exact 5s unless forceFullDuration=false and user toggles early)
+        // show + run countdown and auto-revert
         if (maxTransformDuration > 0f)
         {
-            autoRevertRoutine = StartCoroutine(Co_AutoRevert(maxTransformDuration));
+            autoRevertRoutine = StartCoroutine(Co_AutoRevertWithCountdown(maxTransformDuration));
         }
     }
 
@@ -128,11 +145,13 @@ public class PlayerTransform : MonoBehaviour
 
         if (animator != null) animator.SetTrigger("ToHuman");
 
+        // hide countdown immediately
+        SetCountdownVisible(false);
+
         // scale back up
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, originalScale, transitionTime));
 
         // swap sprite back
-
         if (normalSprite != null) sr.sprite = normalSprite;
 
         isTransformed = false;
@@ -153,12 +172,45 @@ public class PlayerTransform : MonoBehaviour
         float t = 0f;
         while (t < delay)
         {
-            // If early manual revert is allowed and already reverted, stop timer
-            if (!isTransformed) yield break;
+            if (!isTransformed) yield break; // if already reverted
             t += Time.deltaTime;
             yield return null;
         }
-        // time’s up → revert
+        StartTransformOut();
+    }
+
+    // Replaces Co_AutoRevert with visible countdown
+    IEnumerator Co_AutoRevertWithCountdown(float totalSeconds)
+    {
+        // make sure countdown UI is visible
+        SetCountdownVisible(true);
+
+        float remaining = totalSeconds;
+        int lastShown = -1;
+
+        while (remaining > 0f)
+        {
+            if (!isTransformed) { SetCountdownVisible(false); yield break; }
+
+            // Ceil to int for 5..1 display
+            int toShow = Mathf.CeilToInt(remaining);
+
+            if (toShow != lastShown)
+            {
+                SetCountdownText(toShow.ToString());
+                lastShown = toShow;
+            }
+
+            remaining -= Time.deltaTime;
+            yield return null;
+        }
+
+        // final tick to 0 just before revert (brief)
+        SetCountdownText("0");
+        yield return null;
+
+        // hide + revert
+        SetCountdownVisible(false);
         StartTransformOut();
     }
 
@@ -176,4 +228,72 @@ public class PlayerTransform : MonoBehaviour
 
     // Public getter for stealth state
     public bool IsTransformed() => isTransformed;
+
+    // ---------------- Countdown helpers ----------------
+
+    void SetCountdownText(string s)
+    {
+        if (countdownTMP != null) countdownTMP.text = s;
+        if (countdownText != null) countdownText.text = s;
+    }
+
+    void SetCountdownVisible(bool visible, bool instant = false)
+    {
+        // prefer TMP; fall back to Legacy
+        if (countdownTMP != null)
+        {
+            var cg = GetOrAddCanvasGroup(countdownTMP.gameObject);
+            if (fadeCountdown && !instant)
+            {
+                StartFade(cg, visible ? 1f : 0f, countdownFadeTime);
+            }
+            else
+            {
+                if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+                cg.alpha = visible ? 1f : 0f;
+            }
+            countdownTMP.gameObject.SetActive(true); // keep active; alpha controls visibility
+        }
+        else if (countdownText != null)
+        {
+            var cg = GetOrAddCanvasGroup(countdownText.gameObject);
+            if (fadeCountdown && !instant)
+            {
+                StartFade(cg, visible ? 1f : 0f, countdownFadeTime);
+            }
+            else
+            {
+                if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+                cg.alpha = visible ? 1f : 0f;
+            }
+            countdownText.gameObject.SetActive(true);
+        }
+        // If neither assigned, do nothing (no UI)
+    }
+
+    CanvasGroup GetOrAddCanvasGroup(GameObject go)
+    {
+        var cg = go.GetComponent<CanvasGroup>();
+        if (cg == null) cg = go.AddComponent<CanvasGroup>();
+        return cg;
+    }
+
+    void StartFade(CanvasGroup cg, float target, float time)
+    {
+        if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+        countdownFadeRoutine = StartCoroutine(FadeRoutine(cg, target, time));
+    }
+
+    IEnumerator FadeRoutine(CanvasGroup cg, float target, float time)
+    {
+        float start = cg.alpha;
+        float t = 0f;
+        while (t < time)
+        {
+            t += Time.unscaledDeltaTime; // UI feels snappy even if timescale changes
+            cg.alpha = Mathf.Lerp(start, target, t / time);
+            yield return null;
+        }
+        cg.alpha = target;
+    }
 }

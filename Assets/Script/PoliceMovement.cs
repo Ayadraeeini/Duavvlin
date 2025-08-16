@@ -11,34 +11,25 @@ public class PoliceMovement : MonoBehaviour
     [Header("Detection Settings (General)")]
     public Transform player;
     public EyeDetectionUI eyeUI;
-    [Tooltip("Base vertical tolerance for same-height detection.")]
     public float verticalTolerance = 1.5f;
 
     [Header("Directional Detection")]
-    [Tooltip("How far the cop detects in FRONT (strong side).")]
     public float frontRange = 5f;
-    [Tooltip("How far the cop detects BEHIND (weak side).")]
     public float backRange = 1.25f;
-    [Tooltip("Behind-side fills slower. 1 = same as front, 0.5 = half speed.")]
     public float backFillMultiplier = 0.5f;
 
     [Header("Detection Fill/Drain Speeds")]
-    [Tooltip("How fast detection fills (used as FRONT speed).")]
     public float detectionFillSpeed = 1f;
-    [Tooltip("How fast detection drains when leaving vision or stealthed.")]
     public float detectionDrainSpeed = 1f;
 
     [Header("View Cone (optional)")]
     [SerializeField] private Transform viewCone;
 
     [Header("Turn Behaviour")]
-    [Tooltip("Pause duration before flipping direction.")]
     public float turnPause = 0.5f;
-    [Tooltip("Cooldown to avoid repeated flips when the player hovers behind.")]
     public float turnCooldown = 1.0f;
 
     [Header("UI Recovery")]
-    [Tooltip("If out of range/stealthed this long, hard-reset the meter/UI.")]
     public float hardResetDelay = 0.6f;
 
     // --- State ---
@@ -51,13 +42,20 @@ public class PoliceMovement : MonoBehaviour
     private bool isTurning = false;
     private float turnCooldownTimer = 0f;
 
-    // Internal detection meter (works even without EyeDetectionUI)
-    private float detectionMeter = 0f; // 0..1
+    private float detectionMeter = 0f;
     private float outOfRangeTimer = 0f;
+
+    // --- NEW ---
+    private Vector3 startPosition;
+    private bool startFacingRight;
 
     void Start()
     {
         sr = GetComponent<SpriteRenderer>();
+
+        // Save initial spawn position & facing
+        startPosition = transform.position;
+        startFacingRight = movingRight;
 
         if (player == null)
         {
@@ -68,9 +66,8 @@ public class PoliceMovement : MonoBehaviour
         if (eyeUI == null && player != null)
             eyeUI = player.GetComponentInChildren<EyeDetectionUI>();
 
-        // Optional: warn if viewCone has no collider, but DO NOT block detection.
         if (viewCone != null && viewCone.GetComponent<Collider2D>() == null)
-            Debug.LogWarning("[PoliceMovement] viewCone has no 2D Collider (optional). It's fine; detection uses math ranges.");
+            Debug.LogWarning("[PoliceMovement] viewCone has no 2D Collider (optional). Detection uses math ranges.");
     }
 
     void Update()
@@ -79,7 +76,6 @@ public class PoliceMovement : MonoBehaviour
 
         bool stealthed = PlayerIsStealthed();
 
-        // If stealthed, forget the player and drain
         if (stealthed)
         {
             isChasing = false;
@@ -95,7 +91,6 @@ public class PoliceMovement : MonoBehaviour
             else if (!stealthed) ChasePlayer();
         }
 
-        // Run directional detection first so state is fresh
         DetectPlayer_Directional();
 
         if (!isDetectingPlayer && isChasing)
@@ -196,7 +191,6 @@ public class PoliceMovement : MonoBehaviour
         sr.flipX = !movingRight;
     }
 
-    // === DIRECTIONAL DETECTION with internal meter ===
     void DetectPlayer_Directional()
     {
         if (player == null) return;
@@ -296,6 +290,28 @@ public class PoliceMovement : MonoBehaviour
         if (player == null) return false;
         var pm = player.GetComponent<Movement>();
         return pm != null && pm.IsStealthed();
+    }
+
+    // NEW — public method to reset cop to start position/facing
+    public void ResetPosition()
+    {
+        transform.position = startPosition;
+        movingRight = startFacingRight;
+        sr.flipX = !movingRight;
+
+        if (viewCone != null)
+        {
+            Vector3 coneScale = viewCone.localScale;
+            coneScale.x = movingRight ? Mathf.Abs(coneScale.x) : -Mathf.Abs(coneScale.x);
+            viewCone.localScale = coneScale;
+        }
+
+        isDetectingPlayer = false;
+        isChasing = false;
+        detectionMeter = 0f;
+        outOfRangeTimer = 0f;
+        loseSightCooldown = 0f;
+        eyeUI?.ResetDetection();
     }
 
     void OnDrawGizmosSelected()
