@@ -13,6 +13,7 @@ TagManager:
   - brushPreFab
   - Ground
   - Party
+  - ShootingStar
   layers:
   - Default
   - TransparentFX
@@ -49,4 +50,16 @@ TagManager:
   m_SortingLayers:
   - name: Default
     uniqueID: 0
+    locked: 0
+  - name: UI
+    uniqueID: 3709154511
+    locked: 0
+  - name: Graffiti
+    uniqueID: 3131961451
+    locked: 0
+  - name: Characters
+    uniqueID: 4149959123
+    locked: 0
+  - name: Background
+    uniqueID: 878180965
     locked: 0
