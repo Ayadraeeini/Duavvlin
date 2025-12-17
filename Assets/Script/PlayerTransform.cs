@@ -1,6 +1,8 @@
 ﻿using UnityEngine;
 using System.Collections;
 using System;
+using UnityEngine.UI;
+using TMPro;
 
 public class PlayerTransform : MonoBehaviour
 {
@@ -9,58 +11,64 @@ public class PlayerTransform : MonoBehaviour
     public Sprite transformedSprite;
 
     [Header("Controls")]
-    public KeyCode toggleKey = KeyCode.T;
+    public InputReader input; // 👈 New InputReader reference
 
     [Header("Timing")]
-    [Tooltip("How long the scale-in/out animation takes.")]
     public float transitionTime = 0.5f;
-
-    [Tooltip("Auto revert after this many seconds.")]
-    public float maxTransformDuration = 5f; // exactly 5s per your request
+    public float maxTransformDuration = 5f;
 
     [Header("Duration Control")]
-    [Tooltip("If true, player cannot manually revert early; transformation lasts the full duration.")]
     public bool forceFullDuration = true;
 
     [Header("Scale")]
     public Vector3 canScale = new Vector3(0.5f, 0.5f, 1f);
 
     [Header("Movement While Transformed")]
-    [Tooltip("Keep the player able to move while transformed.")]
     public bool allowMovementWhileTransformed = true;
-    [Tooltip("Optional speed multiplier while transformed (1 = same speed).")]
     public float transformedSpeedMultiplier = 1f;
 
-    // Components & state
+    [Header("Countdown UI (optional)")]
+    public TextMeshProUGUI countdownTMP;
+    public Text countdownText;
+    public bool fadeCountdown = true;
+    public float countdownFadeTime = 0.15f;
+
+    [Header("Audio")]
+    public AudioSource audioSource;
+    public AudioClip transformInSound;
+    public AudioClip transformOutSound;
+
     private SpriteRenderer sr;
     private Animator animator;
-    private Movement movement; // optional
+    private Movement movement;
     private Vector3 originalScale;
     private bool isTransformed = false;
     private bool isTransitioning = false;
 
-    // Coroutines
     private Coroutine activeTransition;
     private Coroutine autoRevertRoutine;
+    private Coroutine countdownFadeRoutine;
 
-    // Optional event
     public event Action<bool> OnTransformedChanged;
 
     void Start()
     {
         sr = GetComponent<SpriteRenderer>();
         animator = GetComponent<Animator>();
-        movement = GetComponent<Movement>(); // ok if null
-
+        movement = GetComponent<Movement>();
         originalScale = transform.localScale;
 
         if (normalSprite != null) sr.sprite = normalSprite;
         if (animator == null) Debug.LogWarning("Animator is missing from Player!");
+        if (input == null) Debug.LogWarning("InputReader reference is not assigned!");
+
+        SetCountdownVisible(false, true);
+        SetCountdownText("");
     }
 
     void Update()
     {
-        if (Input.GetKeyDown(toggleKey))
+        if (input != null && input.TransformPressed())
         {
             ToggleTransform();
         }
@@ -69,8 +77,6 @@ public class PlayerTransform : MonoBehaviour
     public void ToggleTransform()
     {
         if (isTransitioning) return;
-
-        // Enforce full 5s duration when already transformed
         if (isTransformed && forceFullDuration) return;
 
         if (!isTransformed) StartTransformIn();
@@ -97,28 +103,27 @@ public class PlayerTransform : MonoBehaviour
     {
         isTransitioning = true;
 
+        if (audioSource != null && transformInSound != null)
+        {
+            audioSource.Stop();
+            audioSource.PlayOneShot(transformInSound);
+        }
+
         if (animator != null) animator.SetTrigger("ToCan");
-
-        // scale down
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, canScale, transitionTime));
-
-        // swap sprite
-        if (transformedSprite != null) sr.sprite = transformedSprite;
 
         isTransformed = true;
         isTransitioning = false;
         OnTransformedChanged?.Invoke(true);
 
-        // movement stays enabled; optionally adjust speed
         if (allowMovementWhileTransformed && movement != null)
         {
-            movement.SetSpeedMultiplier(transformedSpeedMultiplier); // Movement has this now
+            movement.SetSpeedMultiplier(transformedSpeedMultiplier);
         }
 
-        // auto revert (exact 5s unless forceFullDuration=false and user toggles early)
         if (maxTransformDuration > 0f)
         {
-            autoRevertRoutine = StartCoroutine(Co_AutoRevert(maxTransformDuration));
+            autoRevertRoutine = StartCoroutine(Co_AutoRevertWithCountdown(maxTransformDuration));
         }
     }
 
@@ -126,36 +131,58 @@ public class PlayerTransform : MonoBehaviour
     {
         isTransitioning = true;
 
-        if (animator != null) animator.SetTrigger("ToHuman");
+        if (audioSource != null && transformOutSound != null)
+        {
+            audioSource.Stop();
+            audioSource.PlayOneShot(transformOutSound);
+        }
 
-        // scale back up
+        if (animator != null) animator.SetTrigger("ToHuman");
+        SetCountdownVisible(false);
+
         yield return StartCoroutine(ScaleOverTime(transform, transform.localScale, originalScale, transitionTime));
 
-        // swap sprite back
         if (normalSprite != null) sr.sprite = normalSprite;
 
         isTransformed = false;
         isTransitioning = false;
         OnTransformedChanged?.Invoke(false);
 
-        // restore speed if we changed it
         if (movement != null)
         {
             movement.SetSpeedMultiplier(1f);
         }
+
+        if (animator != null) animator.SetTrigger("SetHuman");
     }
 
-    IEnumerator Co_AutoRevert(float delay)
+    IEnumerator Co_AutoRevertWithCountdown(float totalSeconds)
     {
-        float t = 0f;
-        while (t < delay)
+        SetCountdownVisible(true);
+
+        float remaining = totalSeconds;
+        int lastShown = -1;
+
+        while (remaining > 0f)
         {
-            // If early manual revert is allowed and already reverted, stop timer
-            if (!isTransformed) yield break;
-            t += Time.deltaTime;
+            if (!isTransformed) { SetCountdownVisible(false); yield break; }
+
+            int toShow = Mathf.CeilToInt(remaining);
+
+            if (toShow != lastShown)
+            {
+                SetCountdownText(toShow.ToString());
+                lastShown = toShow;
+            }
+
+            remaining -= Time.deltaTime;
             yield return null;
         }
-        // time’s up → revert
+
+        SetCountdownText("0");
+        yield return null;
+
+        SetCountdownVisible(false);
         StartTransformOut();
     }
 
@@ -171,6 +198,65 @@ public class PlayerTransform : MonoBehaviour
         obj.localScale = to;
     }
 
-    // Public getter for stealth state
     public bool IsTransformed() => isTransformed;
+
+    void SetCountdownText(string s)
+    {
+        if (countdownTMP != null) countdownTMP.text = s;
+        if (countdownText != null) countdownText.text = s;
+    }
+
+    void SetCountdownVisible(bool visible, bool instant = false)
+    {
+        if (countdownTMP != null)
+        {
+            var cg = GetOrAddCanvasGroup(countdownTMP.gameObject);
+            if (fadeCountdown && !instant)
+                StartFade(cg, visible ? 1f : 0f, countdownFadeTime);
+            else
+            {
+                if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+                cg.alpha = visible ? 1f : 0f;
+            }
+            countdownTMP.gameObject.SetActive(true);
+        }
+        else if (countdownText != null)
+        {
+            var cg = GetOrAddCanvasGroup(countdownText.gameObject);
+            if (fadeCountdown && !instant)
+                StartFade(cg, visible ? 1f : 0f, countdownFadeTime);
+            else
+            {
+                if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+                cg.alpha = visible ? 1f : 0f;
+            }
+            countdownText.gameObject.SetActive(true);
+        }
+    }
+
+    CanvasGroup GetOrAddCanvasGroup(GameObject go)
+    {
+        var cg = go.GetComponent<CanvasGroup>();
+        if (cg == null) cg = go.AddComponent<CanvasGroup>();
+        return cg;
+    }
+
+    void StartFade(CanvasGroup cg, float target, float time)
+    {
+        if (countdownFadeRoutine != null) StopCoroutine(countdownFadeRoutine);
+        countdownFadeRoutine = StartCoroutine(FadeRoutine(cg, target, time));
+    }
+
+    IEnumerator FadeRoutine(CanvasGroup cg, float target, float time)
+    {
+        float start = cg.alpha;
+        float t = 0f;
+        while (t < time)
+        {
+            t += Time.unscaledDeltaTime;
+            cg.alpha = Mathf.Lerp(start, target, t / time);
+            yield return null;
+        }
+        cg.alpha = target;
+    }
 }

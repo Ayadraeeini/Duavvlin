@@ -3,111 +3,73 @@ using UnityEngine.UI;
 
 public class EyeDetectionUI : MonoBehaviour
 {
-    [Header("Sprites")]
-    public Sprite eyeClosed;
-    public Sprite eyeHalfOpen;
-    public Sprite eyeOpen;
+    [Header("Detection Meter")]
+    [Tooltip("Assign a UI Image with 'Filled' mode (FillAmount 0–1)")]
+    public Image detectionFillImage;
 
-    [Header("References")]
-    public Image eyeImage;
-    public GameObject eyeCanvas; // The root canvas object
-    public Transform player;
-    public Vector3 offset = new Vector3(0, 1.5f, 0); // World space offset above player
+    [Tooltip("Optional max fill time in seconds (used for auto speed).")]
+    public float maxFillTime = 3f;
 
-    [Header("Timers")]
-    public float firstStageTime = 0.5f;
-    public float secondStageTime = 2f;
-    public float fullDetectionTime = 4f;
-    public float timeBeforeReset = 3f;
-
-    // Detection speed controls
-    private float currentDetectionSpeed = 1f;
-    private float currentDrainSpeed = 1f;
-
-    private float detectionTimer = 0f;
-    private int activeDetections = 0;
-    private float lossTimer = 0f;
-
-    void Start()
-    {
-        if (player == null)
-        {
-            GameObject found = GameObject.FindGameObjectWithTag("Player");
-            if (found != null) player = found.transform;
-        }
-
-        if (eyeCanvas != null)
-            eyeCanvas.SetActive(true);
-    }
+    private float currentFillAmount = 0f;
+    private float detectionSpeed = 0f;
+    private float drainSpeed = 0f;
+    private bool isDetecting = false;
+    private bool isDraining = false;
 
     void Update()
     {
-        // ✅ Follow player with screen position conversion
-        if (player != null && eyeCanvas != null)
+        if (isDetecting)
         {
-            Vector3 worldPos = player.position + offset;
-            Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
-            eyeCanvas.transform.position = screenPos;
+            currentFillAmount += detectionSpeed * Time.deltaTime;
+            currentFillAmount = Mathf.Clamp01(currentFillAmount);
+        }
+        else if (isDraining)
+        {
+            currentFillAmount -= drainSpeed * Time.deltaTime;
+            currentFillAmount = Mathf.Clamp01(currentFillAmount);
         }
 
-        // ✅ Handle detection logic
-        if (activeDetections > 0)
+        UpdateUI();
+    }
+
+    private void UpdateUI()
+    {
+        if (detectionFillImage != null)
         {
-            detectionTimer += Time.deltaTime * currentDetectionSpeed;
-            lossTimer = 0f;
+            detectionFillImage.fillAmount = currentFillAmount;
         }
-        else
-        {
-            lossTimer += Time.deltaTime;
-            if (lossTimer >= timeBeforeReset)
-            {
-                Debug.Log("[EyeUI] Fully out of sight for 3s → Resetting.");
-                ResetDetection();
-            }
-            else
-            {
-                detectionTimer = Mathf.MoveTowards(detectionTimer, 0f, Time.deltaTime * currentDrainSpeed);
-            }
-        }
-
-        UpdateEyeSprite();
     }
 
-    void UpdateEyeSprite()
+    public void StartDetection(float speed)
     {
-        if (detectionTimer < firstStageTime)
-            eyeImage.sprite = eyeClosed;
-        else if (detectionTimer < secondStageTime)
-            eyeImage.sprite = eyeHalfOpen;
-        else
-            eyeImage.sprite = eyeOpen;
+        detectionSpeed = speed;
+        isDetecting = true;
+        isDraining = false;
     }
 
-    public void StartDetection(float detectionSpeed)
+    public void StopDetection(float speed)
     {
-        currentDetectionSpeed = detectionSpeed;
-        activeDetections++;
-        lossTimer = 0f;
-        Debug.Log($"[EyeUI] StartDetection → activeDetections = {activeDetections}, speed = {detectionSpeed}");
-    }
-
-    public void StopDetection(float drainSpeed)
-    {
-        currentDrainSpeed = drainSpeed;
-        activeDetections = Mathf.Max(0, activeDetections - 1);
-        Debug.Log($"[EyeUI] StopDetection → activeDetections = {activeDetections}, drain = {drainSpeed}");
-    }
-
-    public bool IsFullyDetected()
-    {
-        return detectionTimer >= fullDetectionTime;
+        drainSpeed = speed;
+        isDetecting = false;
+        isDraining = true;
     }
 
     public void ResetDetection()
     {
-        detectionTimer = 0f;
-        activeDetections = 0;
-        lossTimer = 0f;
-        UpdateEyeSprite();
+        currentFillAmount = 0f;
+        isDetecting = false;
+        isDraining = false;
+        UpdateUI();
+    }
+
+    public bool IsFullyDetected()
+    {
+        return currentFillAmount >= 1f;
+    }
+
+    // ✅ Needed by TriangleDetectionZone
+    public float GetCurrentDetection()
+    {
+        return currentFillAmount;
     }
 }

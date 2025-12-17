@@ -23,7 +23,7 @@ public class SprayBox : MonoBehaviour
 
     [Header("Audio")]
     public SoundMode soundMode = SoundMode.StagedClips;
-    public AudioSource audioSource;             // If null, auto-added on Start
+    public AudioSource audioSource; // auto-added if null
     [Range(0f, 1f)] public float baseVolume = 0.9f;
 
     [Tooltip("Used when SoundMode = StagedClips. E.g. 4 clips increasing in intensity.")]
@@ -51,6 +51,13 @@ public class SprayBox : MonoBehaviour
     [Tooltip("Require player be inside trigger to accept 'E'.")]
     public bool requirePlayerInRange = true;
     private bool isPlayerInRange = false;
+
+    // ====== Rendering (Sorting) ======
+    [Header("Rendering (Sorting)")]
+    [Tooltip("Sorting Layer to use for all graffiti pieces.")]
+    public string graffitiSortingLayer = "Graffiti";
+    [Tooltip("Base order for the SprayBox; children stack above.")]
+    public int baseOrder = 0;
 
     // ====== Internals ======
     private SpriteRenderer baseRenderer;
@@ -80,6 +87,13 @@ public class SprayBox : MonoBehaviour
             return;
         }
 
+        // Ensure base renderer sorting
+        if (baseRenderer != null)
+        {
+            baseRenderer.sortingLayerName = graffitiSortingLayer;
+            baseRenderer.sortingOrder = baseOrder; // 0 by default
+        }
+
         // Create Outline child
         GameObject outlineGO = new GameObject("Outline");
         outlineGO.transform.SetParent(transform);
@@ -87,8 +101,8 @@ public class SprayBox : MonoBehaviour
         outlineGO.transform.localScale = outlineScale;
         outlineRenderer = outlineGO.AddComponent<SpriteRenderer>();
         outlineRenderer.sprite = Sprite.Create(outlineTex, new Rect(0, 0, outlineTex.width, outlineTex.height), new Vector2(0.5f, 0.5f));
-        outlineRenderer.sortingLayerID = baseRenderer.sortingLayerID;
-        outlineRenderer.sortingOrder = baseRenderer.sortingOrder + 1;
+        outlineRenderer.sortingLayerName = graffitiSortingLayer;
+        outlineRenderer.sortingOrder = baseOrder + 1;
         outlineRenderer.color = new Color(1f, 1f, 1f, 0f);
 
         // Create Final child
@@ -98,8 +112,8 @@ public class SprayBox : MonoBehaviour
         finalGO.transform.localScale = finalScale;
         finalRenderer = finalGO.AddComponent<SpriteRenderer>();
         finalRenderer.sprite = Sprite.Create(finalTex, new Rect(0, 0, finalTex.width, finalTex.height), new Vector2(0.5f, 0.5f));
-        finalRenderer.sortingLayerID = baseRenderer.sortingLayerID;
-        finalRenderer.sortingOrder = baseRenderer.sortingOrder + 2;
+        finalRenderer.sortingLayerName = graffitiSortingLayer;
+        finalRenderer.sortingOrder = baseOrder + 2;
         finalRenderer.color = new Color(1f, 1f, 1f, 0f);
 
         // AudioSource fallback
@@ -119,7 +133,6 @@ public class SprayBox : MonoBehaviour
     {
         if (isCompleted) return;
 
-        // Press E to paint if in range (or if range not required)
         if ((!requirePlayerInRange || isPlayerInRange) && Input.GetKeyDown(KeyCode.E))
         {
             Paint();
@@ -140,9 +153,6 @@ public class SprayBox : MonoBehaviour
     }
 
     // -------------------------- Painting Logic --------------------------
-    /// <summary>
-    /// Call this once per press (either by Update 'E' or your PlayerInteraction).
-    /// </summary>
     public void Paint()
     {
         if (outlineRenderer == null || finalRenderer == null) return;
@@ -181,7 +191,7 @@ public class SprayBox : MonoBehaviour
 
     private float GetProgress01()
     {
-        float total = maxPresses * 2f;          // outline + final
+        float total = maxPresses * 2f; // outline + final
         float current = outlinePresses + finalPresses;
         return Mathf.Clamp01(current / total);
     }
@@ -191,11 +201,15 @@ public class SprayBox : MonoBehaviour
         if (isCompleted) return;
         isCompleted = true;
 
-        HideBaseBox();    // visuals + disable collider
-        PlayFinalSound(); // strong finish
+        HideBaseBox();
+        PlayFinalSound();
 
         // Notify listeners (e.g., PopularityMeter)
         OnAnySprayCompleted?.Invoke(this);
+
+        // Optional UI pulse
+        if (RecognitionFlash.Instance != null)
+            RecognitionFlash.Instance.ShowRecognition();
     }
 
     private void HideBaseBox()

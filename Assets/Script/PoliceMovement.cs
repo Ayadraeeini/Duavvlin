@@ -3,74 +3,64 @@ using System.Collections;
 
 public class PoliceMovement : MonoBehaviour
 {
-    [Header("Patrol Settings")]
+    [Header("Patrol")]
     public float speed = 2f;
     public float leftBound;
     public float rightBound;
 
-    [Header("Detection Settings (General)")]
-    public Transform player;
-    public EyeDetectionUI eyeUI;
-    [Tooltip("Base vertical tolerance for same-height detection.")]
-    public float verticalTolerance = 1.5f;
+    [Header("Chase/Lose Sight")]
+    public float loseSightSeconds = 2f;
 
-    [Header("Directional Detection")]
-    [Tooltip("How far the cop detects in FRONT (strong side).")]
-    public float frontRange = 5f;
-    [Tooltip("How far the cop detects BEHIND (weak side).")]
-    public float backRange = 1.25f;
-    [Tooltip("Behind-side fills slower. 1 = same as front, 0.5 = half speed.")]
-    public float backFillMultiplier = 0.5f;
-
-    [Header("Detection Fill/Drain Speeds")]
-    [Tooltip("How fast detection fills (used as FRONT speed).")]
-    public float detectionFillSpeed = 1f;
-    [Tooltip("How fast detection drains when leaving vision or stealthed.")]
-    public float detectionDrainSpeed = 1f;
-
-    [Header("View Cone (optional)")]
-    [SerializeField] private Transform viewCone;
-
-    [Header("Turn Behaviour")]
-    [Tooltip("Pause duration before flipping direction.")]
+    [Header("Turning")]
     public float turnPause = 0.5f;
-    [Tooltip("Cooldown to avoid repeated flips when the player hovers behind.")]
     public float turnCooldown = 1.0f;
 
-    [Header("UI Recovery")]
-    [Tooltip("If out of range/stealthed this long, hard-reset the meter/UI.")]
-    public float hardResetDelay = 0.6f;
+    [Header("Rendering (Sorting)")]
+    public string characterSortingLayer = "Characters";
+    public int characterOrder = 0;
 
-    // --- State ---
-    private bool isDetectingPlayer = false;
+    [Header("View Cone (child)")]
+    [SerializeField] private Transform viewCone;
+    private PatrolVisionCone cone;
+
+    // State
     private bool isChasing = false;
-    private float loseSightCooldown = 0f;
     private bool movingRight = true;
-    private SpriteRenderer sr;
-
     private bool isTurning = false;
     private float turnCooldownTimer = 0f;
+    private float loseSightTimer = 0f;
 
-    // Internal detection meter (works even without EyeDetectionUI)
-    private float detectionMeter = 0f; // 0..1
-    private float outOfRangeTimer = 0f;
+    private SpriteRenderer sr;
+
+    // spawn cache
+    private Vector3 startPosition;
+    private bool startFacingRight;
+
+    // target
+    public Transform player;
 
     void Start()
     {
         sr = GetComponent<SpriteRenderer>();
+        ApplySortingToSelfAndChildren();
+
+        startPosition = transform.position;
+        startFacingRight = movingRight;
 
         if (player == null)
         {
-            GameObject found = GameObject.FindWithTag("Player");
-            if (found != null) player = found.transform;
+            var found = GameObject.FindWithTag("Player");
+            if (found) player = found.transform;
         }
 
-        if (eyeUI == null && player != null)
-            eyeUI = player.GetComponentInChildren<EyeDetectionUI>();
+        cone = viewCone ? viewCone.GetComponent<PatrolVisionCone>() : null;
+        if (cone == null)
+            Debug.LogWarning("[PoliceMovement] ViewCone missing PatrolVisionCone component.");
 
-        // Optional: warn if viewCone has no collider, but DO NOT block detection.
         if (viewCone != null && viewCone.GetComponent<Collider2D>() == null)
-            Debug.LogWarning("[PoliceMovement] viewCone has no 2D Collider (optional). It's fine; detection uses math ranges.");
+            Debug.LogWarning("[PoliceMovement] viewCone has no 2D Collider. Add PolygonCollider2D (IsTrigger).");
+
+        AlignConeToFacing();
     }
 
     void Update()
@@ -78,38 +68,28 @@ public class PoliceMovement : MonoBehaviour
         if (turnCooldownTimer > 0f) turnCooldownTimer -= Time.deltaTime;
 
         bool stealthed = PlayerIsStealthed();
+        bool seePlayer = (!stealthed && cone != null && cone.IsTargetInSight);
 
-        // If stealthed, forget the player and drain
-        if (stealthed)
+        if (seePlayer)
         {
-            isChasing = false;
-            isDetectingPlayer = false;
-            loseSightCooldown = 0f;
-            DrainDetection();
-            eyeUI?.StopDetection(detectionDrainSpeed);
+            isChasing = true;
+            loseSightTimer = 0f;
+        }
+        else if (isChasing)
+        {
+            loseSightTimer += Time.deltaTime;
+            if (loseSightTimer >= loseSightSeconds)
+            {
+                isChasing = false;
+                loseSightTimer = 0f;
+            }
         }
 
         if (!isTurning)
         {
             if (!isChasing) Patrol();
-            else if (!stealthed) ChasePlayer();
+            else ChasePlayer();
         }
-
-        // Run directional detection first so state is fresh
-        DetectPlayer_Directional();
-
-        if (!isDetectingPlayer && isChasing)
-        {
-            loseSightCooldown += Time.deltaTime;
-            if (loseSightCooldown >= 2f)
-            {
-                isChasing = false;
-                loseSightCooldown = 0f;
-            }
-        }
-        if (isDetectingPlayer) loseSightCooldown = 0f;
-
-        if (!stealthed) CheckAndTurnTowardPlayerBehind_Directional();
     }
 
     void Patrol()
@@ -123,7 +103,7 @@ public class PoliceMovement : MonoBehaviour
             if (pos.x >= rightBound)
             {
                 pos.x = rightBound;
-                RequestTurn(false, "Reached right bound");
+                RequestTurn(false);
             }
         }
         else
@@ -132,7 +112,7 @@ public class PoliceMovement : MonoBehaviour
             if (pos.x <= leftBound)
             {
                 pos.x = leftBound;
-                RequestTurn(true, "Reached left bound");
+                RequestTurn(true);
             }
         }
 
@@ -142,26 +122,22 @@ public class PoliceMovement : MonoBehaviour
 
     void ChasePlayer()
     {
-        if (player == null) return;
-        if (isTurning) return;
+        if (player == null || isTurning) return;
 
         float step = speed * Time.deltaTime;
-        Vector3 direction = (player.position - transform.position).normalized;
-        direction.y = 0f;
-        transform.position += direction * step;
+        Vector3 dir = (player.position - transform.position).normalized;
+        dir.y = 0f;
+        transform.position += dir * step;
 
-        bool wantFaceRight = direction.x > 0;
-        if (wantFaceRight != movingRight)
-            RequestTurn(wantFaceRight, "Chase flip");
+        bool wantRight = dir.x > 0;
+        if (wantRight != movingRight) RequestTurn(wantRight);
 
         sr.flipX = !movingRight;
     }
 
-    void RequestTurn(bool faceRight, string reason)
+    void RequestTurn(bool faceRight)
     {
-        if (isTurning) return;
-        if (movingRight == faceRight) return;
-        if (turnCooldownTimer > 0f) return;
+        if (isTurning || movingRight == faceRight || turnCooldownTimer > 0f) return;
 
         StartCoroutine(TurnAfterDelay(faceRight));
         turnCooldownTimer = turnCooldown;
@@ -170,125 +146,44 @@ public class PoliceMovement : MonoBehaviour
     IEnumerator TurnAfterDelay(bool faceRight)
     {
         isTurning = true;
-        float elapsed = 0f;
-        while (elapsed < turnPause) { elapsed += Time.deltaTime; yield return null; }
+        float t = 0f;
+        while (t < turnPause)
+        {
+            t += Time.deltaTime;
+            yield return null;
+        }
         FlipDirection(faceRight);
         isTurning = false;
     }
 
     void FlipDirection(bool faceRight)
     {
-        if (viewCone != null)
-        {
-            Vector3 coneScale = viewCone.localScale;
-            coneScale.x = faceRight ? Mathf.Abs(coneScale.x) : -Mathf.Abs(coneScale.x);
-            viewCone.localScale = coneScale;
-        }
+        movingRight = faceRight;
+        sr.flipX = !movingRight;
+
+        AlignConeToFacing();
 
         foreach (Transform child in transform)
         {
             if (child == viewCone) continue;
             var childSR = child.GetComponent<SpriteRenderer>();
-            if (childSR != null) childSR.flipX = !faceRight;
-        }
-
-        movingRight = faceRight;
-        sr.flipX = !movingRight;
-    }
-
-    // === DIRECTIONAL DETECTION with internal meter ===
-    void DetectPlayer_Directional()
-    {
-        if (player == null) return;
-
-        bool stealthed = PlayerIsStealthed();
-
-        float dx = player.position.x - transform.position.x;
-        float dy = player.position.y - transform.position.y;
-
-        bool playerIsRight = dx > 0f;
-        bool playerInFront = (movingRight && playerIsRight) || (!movingRight && !playerIsRight);
-
-        float usedRange = playerInFront ? frontRange : backRange;
-        bool inVertical = Mathf.Abs(dy) <= verticalTolerance;
-        bool inHorizontal = Mathf.Abs(dx) <= usedRange;
-        bool inRange = !stealthed && inVertical && inHorizontal;
-
-        if (inRange)
-        {
-            outOfRangeTimer = 0f;
-
-            float fill = playerInFront ? detectionFillSpeed : detectionFillMultiplier();
-            detectionMeter += fill * Time.deltaTime;
-            detectionMeter = Mathf.Clamp01(detectionMeter);
-            eyeUI?.StartDetection(fill);
-
-            if (!isDetectingPlayer)
-            {
-                isDetectingPlayer = true;
-            }
-
-            bool behindButVeryClose = !playerInFront && Mathf.Abs(dx) <= backRange * 0.6f;
-            if (!isChasing && (playerInFront || behindButVeryClose) && detectionMeter < 1f)
-            {
-                isChasing = true;
-            }
-
-            if (detectionMeter >= 1f)
-            {
-                detectionMeter = 0f;
-                eyeUI?.ResetDetection();
-                var pm = player.GetComponent<Movement>();
-                if (pm != null) pm.GetCaught();
-            }
-        }
-        else
-        {
-            if (isDetectingPlayer) isDetectingPlayer = false;
-
-            DrainDetection();
-            eyeUI?.StopDetection(detectionDrainSpeed);
-
-            outOfRangeTimer += Time.deltaTime;
-            if (outOfRangeTimer >= hardResetDelay)
-            {
-                detectionMeter = 0f;
-                eyeUI?.ResetDetection();
-                outOfRangeTimer = 0f;
-            }
-
-            if (stealthed) isChasing = false;
+            if (childSR != null)
+                childSR.flipX = !faceRight;
         }
     }
 
-    void CheckAndTurnTowardPlayerBehind_Directional()
+    void AlignConeToFacing()
     {
-        if (player == null || isTurning) return;
+        if (!viewCone) return;
 
-        float dx = player.position.x - transform.position.x;
-        float dy = player.position.y - transform.position.y;
+        // Flip cone using scale, not rotation (avoids Y drift)
+        Vector3 scale = viewCone.localScale;
+        scale.x = Mathf.Abs(scale.x) * (movingRight ? 1 : -1);
+        viewCone.localScale = scale;
 
-        bool playerIsRight = dx > 0f;
-        bool playerInFront = (movingRight && playerIsRight) || (!movingRight && !playerIsRight);
-
-        bool behindAndClose = !playerInFront && Mathf.Abs(dx) <= backRange && Mathf.Abs(dy) <= verticalTolerance;
-
-        if (behindAndClose && turnCooldownTimer <= 0f)
-        {
-            bool faceRight = player.position.x > transform.position.x;
-            RequestTurn(faceRight, "Player approached from behind (close)");
-        }
-    }
-
-    float detectionFillMultiplier()
-    {
-        return detectionFillSpeed * Mathf.Max(0f, backFillMultiplier);
-    }
-
-    void DrainDetection()
-    {
-        detectionMeter -= detectionDrainSpeed * Time.deltaTime;
-        if (detectionMeter < 0f) detectionMeter = 0f;
+        // Preserve the same Y/Z position, just mirror X
+        Vector3 pos = viewCone.localPosition;
+        viewCone.localPosition = new Vector3(Mathf.Abs(pos.x) * (movingRight ? 1 : -1), pos.y, pos.z);
     }
 
     bool PlayerIsStealthed()
@@ -298,14 +193,43 @@ public class PoliceMovement : MonoBehaviour
         return pm != null && pm.IsStealthed();
     }
 
+    public void ResetPosition()
+    {
+        transform.position = startPosition;
+        movingRight = startFacingRight;
+        sr.flipX = !movingRight;
+
+        AlignConeToFacing();
+
+        isChasing = false;
+        isTurning = false;
+        turnCooldownTimer = 0f;
+        loseSightTimer = 0f;
+
+        cone?.HardResetUI();
+        ApplySortingToSelfAndChildren();
+    }
+
+    void ApplySortingToSelfAndChildren()
+    {
+        if (sr != null)
+        {
+            sr.sortingLayerName = characterSortingLayer;
+            sr.sortingOrder = characterOrder;
+        }
+
+        var childSprites = GetComponentsInChildren<SpriteRenderer>(true);
+        foreach (var r in childSprites)
+        {
+            if (!r) continue;
+            r.sortingLayerName = characterSortingLayer;
+            r.sortingOrder = Mathf.Max(characterOrder, r.sortingOrder);
+        }
+    }
+
     void OnDrawGizmosSelected()
     {
-        Gizmos.color = Color.green; // front
-        Vector3 frontCenter = transform.position + new Vector3(movingRight ? frontRange * 0.5f : -frontRange * 0.5f, 0f, 0f);
-        Gizmos.DrawWireCube(frontCenter, new Vector3(frontRange, verticalTolerance * 2f, 0.1f));
-
-        Gizmos.color = Color.yellow; // back
-        Vector3 backCenter = transform.position + new Vector3(movingRight ? -backRange * 0.5f : backRange * 0.5f, 0f, 0f);
-        Gizmos.DrawWireCube(backCenter, new Vector3(backRange, verticalTolerance * 2f, 0.1f));
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawLine(transform.position, transform.position + (movingRight ? Vector3.right : Vector3.left) * 1.5f);
     }
 }
